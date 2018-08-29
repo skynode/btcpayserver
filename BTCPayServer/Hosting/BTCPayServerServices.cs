@@ -41,6 +41,7 @@ using System.Security.Claims;
 using BTCPayServer.Security;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using NBXplorer.DerivationStrategy;
+using NicolasDorier.RateLimits;
 
 namespace BTCPayServer.Hosting
 {
@@ -53,6 +54,7 @@ namespace BTCPayServer.Hosting
                 var factory = provider.GetRequiredService<ApplicationDbContextFactory>();
                 factory.ConfigureBuilder(o);
             });
+            services.AddHttpClient();
             services.TryAddSingleton<SettingsRepository>();
             services.TryAddSingleton<InvoicePaymentNotification>();
             services.TryAddSingleton<BTCPayServerOptions>(o => o.GetRequiredService<IOptions<BTCPayServerOptions>>().Value);
@@ -118,6 +120,8 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<Payments.IPaymentMethodHandler<DerivationStrategy>, Payments.Bitcoin.BitcoinLikePaymentHandler>();
             services.AddSingleton<IHostedService, Payments.Bitcoin.NBXplorerListener>();
 
+            services.AddSingleton<IHostedService, HostedServices.CheckConfigurationHostedService>();
+
             services.AddSingleton<Payments.IPaymentMethodHandler<Payments.Lightning.LightningSupportedPaymentMethod>, Payments.Lightning.LightningLikePaymentHandler>();
             services.AddSingleton<IHostedService, Payments.Lightning.LightningListener>();
 
@@ -135,7 +139,8 @@ namespace BTCPayServer.Hosting
                 else
                     return new Bitpay(new Key(), new Uri("https://test.bitpay.com/"));
             });
-            services.TryAddSingleton<BTCPayRateProviderFactory>();
+            services.TryAddSingleton<RateProviderFactory>();
+            services.TryAddSingleton<RateFetcher>();
 
             services.TryAddScoped<IHttpContextAccessor, HttpContextAccessor>();
             services.AddTransient<AccessTokenController>();
@@ -152,7 +157,7 @@ namespace BTCPayServer.Hosting
             {
                 var opts = provider.GetRequiredService<BTCPayServerOptions>();
                 var bundle = new BundleOptions();
-                bundle.UseMinifiedFiles = opts.BundleJsCss;
+                bundle.UseBundles = opts.BundleJsCss;
                 bundle.AppendVersion = true;
                 return bundle;
             });
@@ -161,6 +166,10 @@ namespace BTCPayServer.Hosting
             {
                 options.AddPolicy(CorsPolicies.All, p=>p.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
             });
+
+            var rateLimits = new RateLimitService();
+            rateLimits.SetZone($"zone={ZoneLimits.Login} rate=5r/min burst=3 nodelay");
+            services.AddSingleton(rateLimits);
             return services;
         }
 
