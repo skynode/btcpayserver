@@ -12,6 +12,9 @@
                 <img class="header__icon__img" src="~/img/logo-white.png" height="40">
             }
         </div>
+        <div class="close-icon close-action">
+            &#10006;
+        </div>
     </div>
     <div class="timer-row">
         <div class="timer-row__progress-bar" style="width: 0%;"></div>
@@ -116,7 +119,7 @@
                     {{srvModel.orderAmountFiat}}
                 </div>
             </div>
-            <div class="line-items__item">
+            <div class="line-items__item" v-show="srvModel.networkFee > 0">
                 <div class="line-items__item__label">
                     <span>{{$t("Network Cost")}}</span>
                 </div>
@@ -148,7 +151,7 @@
         <div class="payment-tabs__tab" id="copy-tab">
             <span>{{$t("Copy")}}</span>
         </div>
-        @if (Model.AllowCoinConversion)
+        @if (Model.ChangellyEnabled)
         {
             <div class="payment-tabs__tab" id="altcoins-tab">
                 <span>{{$t("Conversion")}}</span>
@@ -188,9 +191,21 @@
         </form>
     </div>
     <div class="bp-view payment scan" id="scan">
+        <div class="wrapBtnGroup" v-bind:class="{ invisible: lndModel === null }">
+            <div class="btnGroupLnd">
+                <button onclick="lndToggleBolt11()" v-bind:class="{ active: lndModel != null && lndModel.toggle === 0 }"
+                        v-bind:title="$t('BOLT 11 Invoice')">
+                    {{$t("BOLT 11 Invoice")}}
+                </button>
+                <button onclick="lndToggleNode()" v-bind:class="{ active: lndModel != null && lndModel.toggle === 1 }"
+                        v-bind:title="$t('Node Info')">
+                    {{$t("Node Info")}}
+                </button>
+            </div>
+        </div>
         <div class="payment__scan">
             <img v-bind:src="srvModel.cryptoImage" class="qr_currency_icon" />
-            <qrcode v-bind:val="srvModel.invoiceBitcoinUrlQR" v-bind:size="256" bg-color="#f5f5f7" fg-color="#000">
+            <qrcode v-bind:val="scanDisplayQr" v-bind:size="256" bg-color="#f5f5f7" fg-color="#000">
             </qrcode>
         </div>
         <div class="payment__details__instruction__open-wallet">
@@ -241,7 +256,7 @@
             </div>
         </nav>
     </div>
-    @if (Model.AllowCoinConversion)
+    @if (Model.ChangellyEnabled)
     {
         <div id="altcoins" class="bp-view payment manual-flow">
             <nav v-if="srvModel.isLightning">
@@ -259,23 +274,48 @@
                         {{$t("ConversionTab_BodyDesc", srvModel)}}
                     </span>
                 </div>
-                <center>
-                    <script>function shapeshift_click(a, e) { e.preventDefault(); var link = a.href; var shapeshiftWindow = window.open(link, '1418115287605', 'width=700,height=500,toolbar=0,menubar=0,location=0,status=1,scrollbars=1,resizable=0,left=0,top=0'); shapeshiftWindow.focus(); return false; }</script>
-                    <a onclick="shapeshift_click(this, event);" v-bind:href="srvModel.shapeshiftUrl">
-                        <img src="https://shapeshift.io/images/shifty/xs_light_altcoins.png" class="ss-button">
-                    </a>
-
-                    @*Changelly doesn't have TO_AMOUNT support so we can't include it
-                            <script type="text/javascript">function open_widget(a, e) { e.preventDefault(); var link = a.href; var changellyWindow = window.open(link, 'Changelly', 'width=600,height=470,toolbar=0,menubar=0,location=0,status=1,scrollbars=1,resizable=0,left=0,top=0'); changellyWindow.focus(); return false; }</script>
-                        <a onclick="open_widget(this, event);" href="https://changelly.com/widget/v1?auth=email&from=DASH&to=BTC&address=&amount=1&merchant_id=&ref_id=">
-                            <img src="https://changelly.com/pay_button_pay_with.png" alt="Changelly" />
-                        </a>*@
+                <center>             
+                    <changelly inline-template
+                               :merchant-id="srvModel.changellyMerchantId"
+                               :store-id="srvModel.storeId"
+                               :to-currency="srvModel.paymentMethodId"
+                               :to-currency-due="srvModel.changellyAmountDue"
+                               :to-currency-address="srvModel.btcAddress">
+                        <div class="changelly-component">
+                            <div class="changelly-component-dropdown-holder" v-show="prettyDropdownInstance">
+                                <select 
+                                        v-model="selectedFromCurrency"
+                                        :disabled="isLoading"
+                                        v-on:change="onCurrencyChange($event)"
+                                        ref="changellyCurrenciesDropdown">
+                                    <option value="">{{$t("ConversionTab_CurrencyList_Select_Option")}}</option>
+                                    <option v-for="currency of currencies" 
+                                            :data-prefix="'<img src=\''+currency.image+'\'/>'"
+                                            :value="currency.name">
+                                       {{currency.fullName}}
+                                    </option>
+                                </select>
+                            </div>
+                            <a  v-on:click="openDialog($event)" :href="url" class="changelly-component-button">
+                                <img src="https://changelly.com/pay_button.png" alt="Changelly" v-show="url"/>
+                            </a>
+                            <button class="retry-button" v-if="calculateError" v-on:click="retry('calculateAmount')">
+                                {{$t("ConversionTab_CalculateAmount_Error")}}
+                            </button>
+                            <button class="retry-button" v-if="currenciesError" v-on:click="retry('loadCurrencies')">
+                                {{$t("ConversionTab_LoadCurrencies_Error")}}
+                            </button>
+                            <div v-show="isLoading" class="general__spinner">
+                                <partial name="Checkout-Spinner"/>
+                            </div>
+                        </div>
+                    </changelly>
                 </center>
             </nav>
         </div>
     }
 
-    <div class="bp-view pad" id="paid">
+    <div class="bp-view" id="paid">
         <div class="status-block">
             <div class="success-block">
                 <div class="status-icon">
@@ -289,9 +329,12 @@
                     </div>
                 </div>
                 <div class="success-message">{{$t("This invoice has been paid")}}</div>
-                <a class="action-button" :href="srvModel.merchantRefLink" v-show="srvModel.merchantRefLink">
+                <a class="action-button" :href="srvModel.merchantRefLink" v-show="srvModel.merchantRefLink && !isModal">
                     <span>{{$t("Return to StoreName", srvModel)}}</span>
                 </a>
+                <button class="action-button close-action" v-show="isModal">
+                    <span>{{$t("Return to StoreName", srvModel)}}</span>
+                </button>
             </div>
         </div>
         <div class="button-wrapper refund-address-form-container" id="refund-overpayment-button">
@@ -314,7 +357,7 @@
 
     <div class="bp-view expired" id="expired">
         <div>
-            <div class="expired__body">
+            <div class="expired__body" style="margin-bottom: 20px;">
                 <div class="expired__header">{{$t("What happened?")}}</div>
                 <div class="expired__text" i18n="">
                     {{$t("InvoiceExpired_Body_1", {storeName: srvModel.storeName, maxTimeMinutes: @Model.MaxTimeMinutes})}}
@@ -333,10 +376,12 @@
                     {{srvModel.orderId}}
                 </div>
             </div>
-            <a class="action-button" :href="srvModel.merchantRefLink" v-show="srvModel.merchantRefLink"
-               style="margin-top: 20px;">
+            <a class="action-button" :href="srvModel.merchantRefLink" v-show="srvModel.merchantRefLink && !isModal">
                 <span>{{$t("Return to StoreName", srvModel)}}</span>
             </a>
+            <button class="action-button close-action" v-show="isModal">
+                <span>{{$t("Return to StoreName", srvModel)}}</span>
+            </button>
         </div>
     </div>
 </div>

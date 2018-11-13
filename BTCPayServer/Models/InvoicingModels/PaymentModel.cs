@@ -21,6 +21,7 @@ namespace BTCPayServer.Models.InvoicingModels
         public string CustomLogoLink { get; set; }
         public string DefaultLang { get; set; }
         public List<AvailableCrypto> AvailableCryptos { get; set; } = new List<AvailableCrypto>();
+        public bool IsModal { get; set; }
         public bool IsLightning { get; set; }
         public string CryptoCode { get; set; }
         public string ServerUrl { get; set; }
@@ -55,7 +56,10 @@ namespace BTCPayServer.Models.InvoicingModels
         public string PaymentMethodName { get; set; }
         public string CryptoImage { get; set; }
 
-        public bool AllowCoinConversion { get; set; }
+        public bool ChangellyEnabled { get; set; }
+        public string StoreId { get; set; }
         public string PeerInfo { get; set; }
+        public string ChangellyMerchantId { get; set; }
+        public decimal? ChangellyAmountDue { get; set; }
     }
 }

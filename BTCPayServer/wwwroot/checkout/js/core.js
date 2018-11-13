@@ -20,11 +20,18 @@ function resetTabsSlider() {
     closePaymentMethodDialog(null);
 }
 
-function onDataCallback(jsonData) {
-    // extender properties used 
-    jsonData.shapeshiftUrl = "https://shapeshift.io/shifty.html?destination=" + jsonData.btcAddress + "&output=" + jsonData.paymentMethodId + "&amount=" + jsonData.btcDue;
-    //
+function changeCurrency(currency) {
+    if (currency !== null && srvModel.paymentMethodId !== currency) {
+        $(".payment__currencies").hide();
+        $(".payment__spinner").show();
+        checkoutCtrl.scanDisplayQr = "";
+        srvModel.paymentMethodId = currency;
+        fetchStatus();
+    }
+    return false;
+}
 
+function onDataCallback(jsonData) {
     var newStatus = jsonData.status;
 
     if (newStatus === "complete" ||
@@ -61,23 +68,30 @@ function onDataCallback(jsonData) {
     }
 
     // restoring qr code view only when currency is switched
+    if (jsonData.paymentMethodId === srvModel.paymentMethodId &&
+        checkoutCtrl.scanDisplayQr === "") {
+        checkoutCtrl.scanDisplayQr = jsonData.invoiceBitcoinUrlQR;
+    }
+
     if (jsonData.paymentMethodId === srvModel.paymentMethodId) {
         $(".payment__currencies").show();
         $(".payment__spinner").hide();
     }
 
+    if (jsonData.isLightning && checkoutCtrl.lndModel === null) {
+        var lndModel = {
+            toggle: 0
+        };
+
+        checkoutCtrl.lndModel = lndModel;
+    }
+
+    if (!jsonData.isLightning) {
+        checkoutCtrl.lndModel = null;
+    }
+
     // updating ui
     checkoutCtrl.srvModel = jsonData;
-}
-
-function changeCurrency(currency) {
-    if (currency !== null && srvModel.paymentMethodId !== currency) {
-        $(".payment__currencies").hide();
-        $(".payment__spinner").show();
-        srvModel.paymentMethodId = currency;
-        fetchStatus();
-    }
-    return false;
 }
 
 function fetchStatus() {
@@ -93,36 +107,44 @@ function fetchStatus() {
     });
 }
 
+function lndToggleBolt11() {
+    checkoutCtrl.lndModel.toggle = 0;
+    checkoutCtrl.scanDisplayQr = checkoutCtrl.srvModel.invoiceBitcoinUrlQR;
+}
+
+function lndToggleNode() {
+    checkoutCtrl.lndModel.toggle = 1;
+    checkoutCtrl.scanDisplayQr = checkoutCtrl.srvModel.peerInfo;
+}
+
 // private methods
 $(document).ready(function () {
     // initialize
     onDataCallback(srvModel);
-
-    /* TAF
-    
-    - Version mobile
-    
-    - Réparer le décallage par timer
-    
-    - Preparer les variables de l'API
-    
-    - Gestion des differents evenements en fonction du status de l'invoice
-    
-    - sécuriser les CDN
-    
-    */
 
     // check if the Document expired
     if (srvModel.expirationSeconds > 0) {
         progressStart(srvModel.maxTimeSeconds); // Progress bar
 
         if (srvModel.requiresRefundEmail && !validateEmail(srvModel.customerEmail))
-            emailForm(); // Email form Display
+            showEmailForm();
         else
             hideEmailForm();
     }
 
+    $(".close-action").on("click", function () {
+        $("invoice").fadeOut(300, function () {
+            window.parent.postMessage("close", "*");
+        });
+    });
 
+    window.parent.postMessage("loaded", "*");
+    jQuery("invoice").fadeOut(0);
+    jQuery("invoice").fadeIn(300);
+
+    // eof initialize
+
+    // FUNCTIONS
     function hideEmailForm() {
         $("#emailAddressView").removeClass("active");
         $("placeholder-refundEmail").html(srvModel.customerEmail);
@@ -133,7 +155,7 @@ $(document).ready(function () {
     }
     // Email Form
     // Setup Email mode
-    function emailForm() {
+    function showEmailForm() {
         $(".modal-dialog").addClass("enter-purchaser-email");
 
         $("#emailAddressForm .action-button").click(function () {

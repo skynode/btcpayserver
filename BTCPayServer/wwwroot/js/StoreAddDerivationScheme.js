@@ -1,6 +1,16 @@
 ﻿$(function () {
     var ledgerDetected = false;
-    var bridge = new ledgerwebsocket.LedgerWebSocketBridge(srvModel);
+
+    var loc = window.location, new_uri;
+    if (loc.protocol === "https:") {
+        new_uri = "wss:";
+    } else {
+        new_uri = "ws:";
+    }
+    new_uri += "//" + loc.host;
+    new_uri += loc.pathname + "/ledger/ws";
+
+    var bridge = new ledgerwebsocket.LedgerWebSocketBridge(new_uri);
 
     var cryptoSelector = $("#CryptoCurrency");
     function GetSelectedCryptoCode() {
@@ -64,7 +74,7 @@
             else {
                 bridge.sendCommand('test', null, 5)
                     .catch(function (reason) {
-                        if (reason.message === "Sign failed")
+                        if (reason.name === "TransportError")
                             reason = "Have you forgot to activate browser support in your ledger app?";
                         Write('hw', 'error', reason);
                     })

@@ -5,12 +5,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Payments;
-using BTCPayServer.Payments.Lightning.CLightning;
 using Microsoft.AspNetCore.Mvc;
 using BTCPayServer.Payments.Lightning;
 using System.Net;
 using BTCPayServer.Data;
 using System.Threading;
+using BTCPayServer.Lightning;
 
 namespace BTCPayServer.Controllers
 {
@@ -114,7 +114,7 @@ namespace BTCPayServer.Controllers
                     }
                     if(!System.IO.File.Exists(connectionString.MacaroonFilePath))
                     {
-                        ModelState.AddModelError(nameof(vm.ConnectionString), "The macaroonfilepath file does exist");
+                        ModelState.AddModelError(nameof(vm.ConnectionString), "The macaroonfilepath file does not exist");
                         return View(vm);
                     }
                     if(!System.IO.Path.IsPathRooted(connectionString.MacaroonFilePath))

@@ -1,4 +1,6 @@
 ﻿using BTCPayServer.Configuration;
+using System.Linq;
+using BTCPayServer.HostedServices;
 using BTCPayServer.Hosting;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
@@ -35,6 +37,12 @@ using Xunit;
 
 namespace BTCPayServer.Tests
 {
+    public enum TestDatabases
+    {
+        Postgres,
+        MySQL,
+    }
+
     public class BTCPayServerTester : IDisposable
     {
         private string _Directory;
@@ -57,6 +65,11 @@ namespace BTCPayServer.Tests
             set;
         }
 
+        public string MySQL
+        {
+            get; set;
+        }
+
         public string Postgres
         {
             get; set;
@@ -68,6 +81,10 @@ namespace BTCPayServer.Tests
             get; set;
         }
 
+        public TestDatabases TestDatabase
+        {
+            get; set;
+        }
 
         public bool MockRates { get; set; } = true;
 
@@ -94,7 +111,9 @@ namespace BTCPayServer.Tests
 
             config.AppendLine($"btc.lightning={IntegratedLightning.AbsoluteUri}");
 
-            if (Postgres != null)
+            if (TestDatabase == TestDatabases.MySQL && !String.IsNullOrEmpty(MySQL))
+                config.AppendLine($"mysql=" + MySQL);
+            else if (!String.IsNullOrEmpty(Postgres))
                 config.AppendLine($"postgres=" + Postgres);
             var confPath = Path.Combine(chainDirectory, "settings.config");
             File.WriteAllText(confPath, config.ToString());
@@ -121,6 +140,11 @@ namespace BTCPayServer.Tests
             _Host.Start();
             InvoiceRepository = (InvoiceRepository)_Host.Services.GetService(typeof(InvoiceRepository));
             StoreRepository = (StoreRepository)_Host.Services.GetService(typeof(StoreRepository));
+            var dashBoard = (NBXplorerDashboard)_Host.Services.GetService(typeof(NBXplorerDashboard));
+            while(!dashBoard.IsFullySynched())
+            {
+                Thread.Sleep(10);
+            }
 
             if (MockRates)
             {
@@ -198,15 +222,19 @@ namespace BTCPayServer.Tests
             return _Host.Services.GetRequiredService<T>();
         }
 
-        public T GetController<T>(string userId = null, string storeId = null) where T : Controller
+        public T GetController<T>(string userId = null, string storeId = null, Claim[] additionalClaims = null) where T : Controller
         {
             var context = new DefaultHttpContext();
-            context.Request.Host = new HostString("127.0.0.1");
+            context.Request.Host = new HostString("127.0.0.1", Port);
             context.Request.Scheme = "http";
             context.Request.Protocol = "http";
             if (userId != null)
             {
-                context.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, userId) }, Policies.CookieAuthentication));
+                List<Claim> claims = new List<Claim>();
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
+                if (additionalClaims != null)
+                    claims.AddRange(additionalClaims);
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), Policies.CookieAuthentication));
             }
             if (storeId != null)
             {

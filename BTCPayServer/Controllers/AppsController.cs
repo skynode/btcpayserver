@@ -5,8 +5,9 @@ using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Models;
 using BTCPayServer.Models.AppViewModels;
+using BTCPayServer.Security;
 using BTCPayServer.Services.Apps;
-using BTCPayServer.Services.Rates;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,32 +16,32 @@ using NBitcoin.DataEncoders;
 
 namespace BTCPayServer.Controllers
 {
+    [Authorize(AuthenticationSchemes = Policies.CookieAuthentication)]
     [AutoValidateAntiforgeryToken]
     [Route("apps")]
     public partial class AppsController : Controller
     {
-        ApplicationDbContextFactory _ContextFactory;
-        UserManager<ApplicationUser> _UserManager;
-        CurrencyNameTable _Currencies;
-        InvoiceController _InvoiceController;
-        BTCPayNetworkProvider _NetworkProvider;
-
-        [TempData]
-        public string StatusMessage { get; set; }
-
         public AppsController(
             UserManager<ApplicationUser> userManager,
             ApplicationDbContextFactory contextFactory,
-            CurrencyNameTable currencies,
-            InvoiceController invoiceController,
-            BTCPayNetworkProvider networkProvider)
+            BTCPayNetworkProvider networkProvider,
+            AppsHelper appsHelper)
         {
-            _InvoiceController = invoiceController;
             _UserManager = userManager;
             _ContextFactory = contextFactory;
-            _Currencies = currencies;
             _NetworkProvider = networkProvider;
+            _AppsHelper = appsHelper;
         }
+
+        private UserManager<ApplicationUser> _UserManager;
+        private ApplicationDbContextFactory _ContextFactory;
+        private BTCPayNetworkProvider _NetworkProvider;
+        private AppsHelper _AppsHelper;
+
+        [TempData]
+        public string StatusMessage { get; set; }
+        public string CreatedAppId { get; set; }
+
         public async Task<IActionResult> ListApps()
         {
             var apps = await GetAllApps();
@@ -104,7 +105,7 @@ namespace BTCPayServer.Controllers
                 StatusMessage = "Error: You are not owner of this store";
                 return RedirectToAction(nameof(ListApps));
             }
-            var id = Encoders.Base58.EncodeData(RandomUtils.GetBytes(32));
+            var id = Encoders.Base58.EncodeData(RandomUtils.GetBytes(20));
             using (var ctx = _ContextFactory.CreateContext())
             {
                 var appData = new AppData() { Id = id };
@@ -115,7 +116,7 @@ namespace BTCPayServer.Controllers
                 await ctx.SaveChangesAsync();
             }
             StatusMessage = "App successfully created";
-
+            CreatedAppId = id;
             if (appType == AppType.PointOfSale)
                 return RedirectToAction(nameof(UpdatePointOfSale), new { appId = id });
             return RedirectToAction(nameof(ListApps));
@@ -136,21 +137,9 @@ namespace BTCPayServer.Controllers
             });
         }
 
-        private async Task<AppData> GetOwnedApp(string appId, AppType? type = null)
+        private Task<AppData> GetOwnedApp(string appId, AppType? type = null)
         {
-            var userId = GetUserId();
-            using (var ctx = _ContextFactory.CreateContext())
-            {
-                var app = await ctx.UserStore
-                                .Where(us => us.ApplicationUserId == userId && us.Role == StoreRoles.Owner)
-                                .SelectMany(us => us.StoreData.Apps.Where(a => a.Id == appId))
-                   .FirstOrDefaultAsync();
-                if (app == null)
-                    return null;
-                if (type != null && type.Value.ToString() != app.AppType)
-                    return null;
-                return app;
-            }
+            return _AppsHelper.GetAppDataIfOwner(GetUserId(), appId, type);
         }
 
         private async Task<StoreData[]> GetOwnedStores()
@@ -200,14 +189,6 @@ namespace BTCPayServer.Controllers
         private string GetUserId()
         {
             return _UserManager.GetUserId(User);
-        }
-
-        private async Task<StoreData> GetStore(AppData app)
-        {
-            using (var ctx = _ContextFactory.CreateContext())
-            {
-                return await ctx.Stores.FirstOrDefaultAsync(s => s.Id == app.StoreDataId);
-            }
         }
     }
 }

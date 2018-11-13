@@ -6,10 +6,6 @@ html {
     -webkit-text-size-adjust: 100%;
 }
 
-body {
-    margin: 0;
-}
-
 article,
 aside,
 details,
@@ -333,8 +329,9 @@ body {
     font-family: "Roboto", "Helvetica", sans-serif;
     font-size: 1rem;
     line-height: 1.5;
-    color: #373a3c;
     background-color: #fff;
+    margin: 0;
+    background: #E4E4E4;
 }
 
 [tabindex="-1"]:focus {
@@ -1296,10 +1293,6 @@ html {
     -webkit-text-size-adjust: 100%;
 }
 
-body {
-    margin: 0;
-}
-
 article,
 aside,
 details,
@@ -1617,14 +1610,6 @@ html {
     font-size: 16px;
     -ms-overflow-style: scrollbar;
     -webkit-tap-highlight-color: transparent;
-}
-
-body {
-    font-family: "Roboto", "Helvetica", sans-serif;
-    font-size: 1rem;
-    line-height: 1.5;
-    color: #373a3c;
-    background-color: #fff;
 }
 
 [tabindex="-1"]:focus {
@@ -9084,11 +9069,12 @@ strong {
 
 .close-icon {
     flex-grow: 1;
-    display: flex;
+    display: none;
     justify-content: flex-end;
     padding: 13px;
     transition: opacity 250ms ease;
     opacity: 1;
+    cursor: pointer;
 }
 
     .close-icon img {
@@ -9236,7 +9222,7 @@ strong {
     }
 
     .bp-view.scan {
-        padding-top: .9em !important;
+        padding-top: 0em !important;
     }
 
     .bp-view:not(.active) {
@@ -9376,11 +9362,67 @@ strong {
     border-bottom: 1px dotted;
 }
 
+.wrapBtnGroup {
+    text-align: center;
+    margin: -2px 0px 12px;
+    padding: 0 15px;
+}
+
+.btnGroupLnd {
+    margin: 0 auto;
+    text-align: center;
+    width: inherit;
+    display: table;
+    background-color: #fff;
+    color: #000;
+    font-size: 0px;
+    width: 100%;
+}
+
+    .btnGroupLnd button:first-child {
+        border-top-left-radius: 5px;
+        border-bottom-left-radius: 5px;
+        border-right: 0px;
+    }
+
+    .btnGroupLnd button:last-child {
+        border-top-right-radius: 5px;
+        border-bottom-right-radius: 5px;
+    }
+
+    .btnGroupLnd button {
+        display: table-cell;
+        border: solid 1px #24725B;
+        padding: 6px 9px;
+        margin: 0px;
+        font-size: 12px;
+        width: 50%;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+        .btnGroupLnd button:hover {
+            background-color: #eeffee;
+        }
+
+        .btnGroupLnd button.active {
+            background-color: #329F80;
+            border-color: #329F80;
+            color: #fff;
+        }
+
+            .btnGroupLnd button.active:hover {
+                background-color: #24725B;
+                border-color: #24725B;
+                color: #fff;
+            }
+
 .payment__details__instruction__open-wallet {
     display: block;
     margin-left: auto;
     margin-right: auto;
-    margin: 15px 15px 18px;
+    margin: 0px 15px 18px;
     text-align: center;
 }
 
@@ -10317,7 +10359,7 @@ All mobile class names should be prefixed by m- */
 }
 
 .paid:not(.paid-over) .status-icon {
-    padding-top: 54px;
+    padding-top: 45px;
 }
 
 .paid:not(.paid-over) .button-wrapper {
@@ -10939,6 +10981,15 @@ bp-spinner {
         opacity: .85;
     }
 
+.general__spinner > bp-spinner > svg {
+    margin: auto 0px 0px auto;
+    height: 32px;
+    width: 32px;
+    fill: gray;
+    animation: spin 0.55s linear infinite;
+    opacity: .85;
+}
+
 bp-refund-address.ng-valid .bitcoin-logo {
     opacity: 1;
     margin-left: 0;
@@ -11403,3 +11454,53 @@ low-fee-timeline {
         opacity: 1;
         transition: opacity 1s ease;
     }
+
+.changelly-component {
+    position: relative;
+}
+
+.changelly-component-dropdown-holder {
+    height: 32px;
+    margin-bottom: 10px;
+}
+.changelly-component .general__spinner bp-spinner {
+    width: 50px;
+    height: 50px;
+    
+}
+
+.changelly-component .general__spinner bp-spinner svg {
+    margin: 0;
+}
+
+.changelly-component .retry-button {
+    border-radius: 5px;
+    border: 1px solid #a9a9a9;
+    background: #fff;
+    color: #000;
+    min-width:100px;  
+    padding-left: 0.8rem;
+    padding-right: 0.8rem;
+    min-height: 30px;
+    word-break: break-all;
+}
+
+.changelly-component .retry-button :hover{
+    border-color: #7f7f7f;
+}
+
+.changelly-component .prettydropdown li img {
+    width:20px; 
+    margin-right: 5px;
+}
+
+
+#prettydropdown-DefaultLang{
+    min-width:200px;
+}
+#prettydropdown-DefaultLang ul{
+    width:100%;
+}
+#prettydropdown-DefaultLang ul li{
+    width:100% !important;
+}

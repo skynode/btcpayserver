@@ -15,6 +15,8 @@ using NBXplorer.DerivationStrategy;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Tests.Logging;
+using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.CLightning;
 
 namespace BTCPayServer.Tests
 {
@@ -71,16 +73,16 @@ namespace BTCPayServer.Tests
 
         public BTCPayNetwork SupportedNetwork { get; set; }
 
-        public void RegisterDerivationScheme(string crytoCode)
+        public WalletId RegisterDerivationScheme(string crytoCode, bool segwit = false)
         {
-            RegisterDerivationSchemeAsync(crytoCode).GetAwaiter().GetResult();
+            return RegisterDerivationSchemeAsync(crytoCode, segwit).GetAwaiter().GetResult();
         }
-        public async Task RegisterDerivationSchemeAsync(string cryptoCode)
+        public async Task<WalletId> RegisterDerivationSchemeAsync(string cryptoCode, bool segwit = false)
         {
             SupportedNetwork = parent.NetworkProvider.GetNetwork(cryptoCode);
             var store = parent.PayTester.GetController<StoresController>(UserId, StoreId);
             ExtKey = new ExtKey().GetWif(SupportedNetwork.NBitcoinNetwork);
-            DerivationScheme = new DerivationStrategyFactory(SupportedNetwork.NBitcoinNetwork).Parse(ExtKey.Neuter().ToString() + "-[legacy]");
+            DerivationScheme = new DerivationStrategyFactory(SupportedNetwork.NBitcoinNetwork).Parse(ExtKey.Neuter().ToString() + (segwit ? "" : "-[legacy]"));
             var vm = (StoreViewModel)((ViewResult)store.UpdateStore()).Model;
             vm.SpeedPolicy = SpeedPolicy.MediumSpeed;
             await store.UpdateStore(vm);
@@ -90,6 +92,8 @@ namespace BTCPayServer.Tests
                 DerivationScheme = DerivationScheme.ToString(),
                 Confirmation = true
             }, cryptoCode);
+
+            return new WalletId(StoreId, cryptoCode);
         }
 
         public DerivationStrategyBase DerivationScheme { get; set; }
@@ -133,7 +137,7 @@ namespace BTCPayServer.Tests
             if (connectionType == LightningConnectionType.Charge)
                 connectionString = "type=charge;server=" + parent.MerchantCharge.Client.Uri.AbsoluteUri;
             else if (connectionType == LightningConnectionType.CLightning)
-                connectionString = "type=clightning;server=" + parent.MerchantLightningD.Address.AbsoluteUri;
+                connectionString = "type=clightning;server=" + ((CLightningClient)parent.MerchantLightningD).Address.AbsoluteUri;
             else if (connectionType == LightningConnectionType.LndREST)
                 connectionString = $"type=lnd-rest;server={parent.MerchantLnd.Swagger.BaseUrl};allowinsecure=true";
             else

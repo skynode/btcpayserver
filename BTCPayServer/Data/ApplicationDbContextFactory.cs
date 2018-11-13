@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Hangfire;
 using Hangfire.MemoryStorage;
-using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Migrations;
 using JetBrains.Annotations;
@@ -17,7 +16,8 @@ namespace BTCPayServer.Data
     public enum DatabaseType
     {
         Sqlite,
-        Postgres
+        Postgres,
+        MySQL,
     }
     public class ApplicationDbContextFactory
     {
@@ -95,6 +95,8 @@ namespace BTCPayServer.Data
                 builder
                     .UseNpgsql(_ConnectionString)
                     .ReplaceService<IMigrationsSqlGenerator, CustomNpgsqlMigrationsSqlGenerator>();
+            else if (_Type == DatabaseType.MySQL)
+                builder.UseMySql(_ConnectionString);
         }
 
         public void ConfigureHangfireBuilder(IGlobalConfiguration builder)

@@ -44,25 +44,35 @@
             </div>
             <div class="form-group">
                 <label asp-for="NetworkFee"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#add-network-fee-to-invoice-vary-with-mining-fees" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="NetworkFee" type="checkbox" class="form-check" />
             </div>
             <div class="form-group">
+                <label asp-for="AnyoneCanCreateInvoice"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#allow-anyone-to-create-invoice" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
+                <input asp-for="AnyoneCanCreateInvoice" type="checkbox" class="form-check" />
+            </div>
+            <div class="form-group">
                 <label asp-for="InvoiceExpiration"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#invoice-expires-if-the-full-amount-has-not-been-paid-after-minutes" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="InvoiceExpiration" class="form-control" />
                 <span asp-validation-for="InvoiceExpiration" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label asp-for="MonitoringExpiration"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#payment-invalid-if-transactions-fails-to-confirm-minutes-after-invoice-expiration" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="MonitoringExpiration" class="form-control" />
                 <span asp-validation-for="MonitoringExpiration" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label asp-for="PaymentTolerance"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#consider-the-invoice-paid-even-if-the-paid-amount-is-less-than-expected" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="PaymentTolerance" class="form-control" />
                 <span asp-validation-for="PaymentTolerance" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label asp-for="SpeedPolicy"></label>
+                <a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-stores#consider-the-invoice-confirmed-when-the-payment-transaction" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <select asp-for="SpeedPolicy" class="form-control">
                     <option value="0">Is unconfirmed</option>
                     <option value="1">Has at least 1 confirmation</option>
@@ -164,6 +174,43 @@
                     Available placeholders are: {StoreName}, {ItemDescription} and {OrderId}
                 </p>
             </div>
+            
+             <div class="form-group">
+                <div class="form-group">
+                    <h5>Third party Payment methods</h5>
+                </div>
+                <div class="form-group">
+                    <table class="table table-sm table-responsive-md">
+                        <thead>
+                            <tr>
+                                <th>Provider</th>
+                                <th style="text-align:center;">Enabled</th>
+                                <th style="text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach(var scheme in Model.ThirdPartyPaymentMethods)
+                        {
+                            <tr>
+                                <td>@scheme.Provider</td>
+                                <td style="text-align:center;">
+                                    @if(scheme.Enabled)
+                                    {
+                                        <span class="fa fa-check"></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fa fa-times"></span>
+                                    }
+                                </td>
+                                <td style="text-align:right"><a asp-action="@scheme.Action" >Modify</a></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
             @if(Model.CanDelete)
             {
                 <div class="form-group">
