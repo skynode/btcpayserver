@@ -19,7 +19,6 @@ using BTCPayServer.Models;
 using Microsoft.AspNetCore.Identity;
 using BTCPayServer.Data;
 using Microsoft.Extensions.Logging;
-using Hangfire;
 using BTCPayServer.Logging;
 using Microsoft.AspNetCore.Authorization;
 using System.Threading.Tasks;
@@ -27,17 +26,15 @@ using BTCPayServer.Controllers;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Mails;
 using Microsoft.Extensions.Configuration;
-using Hangfire.AspNetCore;
 using BTCPayServer.Configuration;
 using System.IO;
-using Hangfire.Dashboard;
-using Hangfire.Annotations;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Threading;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc.Cors.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using System.Net;
+using BTCPayServer.Hubs;
 using Meziantou.AspNetCore.BundleTagHelpers;
 using BTCPayServer.Security;
 
@@ -45,18 +42,6 @@ namespace BTCPayServer.Hosting
 {
     public class Startup
     {
-        class NeedRole : IDashboardAuthorizationFilter
-        {
-            string _Role;
-            public NeedRole(string role)
-            {
-                _Role = role;
-            }
-            public bool Authorize([NotNull] DashboardContext context)
-            {
-                return context.GetHttpContext().User.IsInRole(_Role);
-            }
-        }
         public Startup(IConfiguration conf, IHostingEnvironment env, ILoggerFactory loggerFactory)
         {
             Configuration = conf;
@@ -78,7 +63,7 @@ namespace BTCPayServer.Hosting
             services.AddIdentity<ApplicationUser, IdentityRole>()
                 .AddEntityFrameworkStores<ApplicationDbContext>()
                 .AddDefaultTokenProviders();
-
+            services.AddSignalR();
             services.AddBTCPayServer();
             services.AddMvc(o =>
             {
@@ -99,7 +84,7 @@ namespace BTCPayServer.Hosting
             services.Configure<IdentityOptions>(options =>
             {
                 options.Password.RequireDigit = false;
-                options.Password.RequiredLength = 7;
+                options.Password.RequiredLength = 6;
                 options.Password.RequireLowercase = false;
                 options.Password.RequireNonAlphanumeric = false;
                 options.Password.RequireUppercase = false;
@@ -107,21 +92,6 @@ namespace BTCPayServer.Hosting
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.AllowedForNewUsers = true;
             });
-
-            services.AddHangfire((o) =>
-            {
-                var scope = AspNetCoreJobActivator.Current.BeginScope(null);
-                var options = (ApplicationDbContextFactory)scope.Resolve(typeof(ApplicationDbContextFactory));
-                options.ConfigureHangfireBuilder(o);
-            });
-            services.AddCors(o =>
-            {
-                o.AddPolicy("BitpayAPI", b =>
-                {
-                    b.AllowAnyMethod().AllowAnyHeader().AllowAnyOrigin();
-                });
-            });
-
             // If the HTTPS certificate path is not set this logic will NOT be used and the default Kestrel binding logic will be.
             string httpsCertificateFilePath = Configuration.GetOrDefault<string>("HttpsCertificateFilePath", null);
             bool useDefaultCertificate = Configuration.GetOrDefault<bool>("HttpsUseDefaultCertificate", false);
@@ -192,11 +162,9 @@ namespace BTCPayServer.Hosting
             app.UsePayServer();
             app.UseStaticFiles();
             app.UseAuthentication();
-            app.UseHangfireServer();
-            app.UseHangfireDashboard("/hangfire", new DashboardOptions()
+            app.UseSignalR(route =>
             {
-                AppPath = options.GetRootUri(),
-                Authorization = new[] { new NeedRole(Roles.ServerAdmin) }
+                route.MapHub<CrowdfundHub>("/apps/crowdfund/hub");
             });
             app.UseWebSockets();
             app.UseStatusCodePages();

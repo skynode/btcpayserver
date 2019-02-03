@@ -12,7 +12,6 @@ using NBitpayClient;
 
 namespace BTCPayServer.Controllers
 {
-    [EnableCors("BitpayAPI")]
     [BitpayAPIConstraint]
     [Authorize(Policies.CanCreateInvoice.Key, AuthenticationSchemes = Policies.BitpayAuthentication)]
     public class InvoiceControllerAPI : Controller
@@ -40,16 +39,18 @@ namespace BTCPayServer.Controllers
 
         [HttpGet]
         [Route("invoices/{id}")]
-        [AllowAnonymous]
-        public async Task<DataWrapper<InvoiceResponse>> GetInvoice(string id, string token)
+        public async Task<DataWrapper<InvoiceResponse>> GetInvoice(string id)
         {
-            var invoice = await _InvoiceRepository.GetInvoice(null, id);
+            var invoice = (await _InvoiceRepository.GetInvoices(new InvoiceQuery()
+            {
+                InvoiceId = id,
+                StoreId = new[] { HttpContext.GetStoreData().Id }
+            })).FirstOrDefault();
             if (invoice == null)
                 throw new BitpayHttpException(404, "Object not found");
             var resp = invoice.EntityToDTO(_NetworkProvider);
             return new DataWrapper<InvoiceResponse>(resp);
         }
-
         [HttpGet]
         [Route("invoices")]
         public async Task<DataWrapper<InvoiceResponse[]>> GetInvoices(
@@ -64,15 +65,15 @@ namespace BTCPayServer.Controllers
         {
             if (dateEnd != null)
                 dateEnd = dateEnd.Value + TimeSpan.FromDays(1); //Should include the end day
-            
+
             var query = new InvoiceQuery()
             {
                 Count = limit,
                 Skip = offset,
                 EndDate = dateEnd,
                 StartDate = dateStart,
-                OrderId = orderId,
-                ItemCode = itemCode,
+                OrderId =  orderId == null ? null : new[] { orderId },
+                ItemCode =  itemCode == null ? null : new[] { itemCode },
                 Status = status == null ? null : new[] { status },
                 StoreId = new[] { this.HttpContext.GetStoreData().Id }
             };

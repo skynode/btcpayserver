@@ -28,10 +28,11 @@ namespace BTCPayServer.Controllers
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
-        private readonly IEmailSender _emailSender;
+        private readonly EmailSenderFactory _EmailSenderFactory;
         StoreRepository storeRepository;
         RoleManager<IdentityRole> _RoleManager;
         SettingsRepository _SettingsRepository;
+        Configuration.BTCPayServerOptions _Options;
         ILogger _logger;
 
         public AccountController(
@@ -39,15 +40,17 @@ namespace BTCPayServer.Controllers
             RoleManager<IdentityRole> roleManager,
             StoreRepository storeRepository,
             SignInManager<ApplicationUser> signInManager,
-            IEmailSender emailSender,
-            SettingsRepository settingsRepository)
+            EmailSenderFactory emailSenderFactory,
+            SettingsRepository settingsRepository,
+            Configuration.BTCPayServerOptions options)
         {
             this.storeRepository = storeRepository;
             _userManager = userManager;
             _signInManager = signInManager;
-            _emailSender = emailSender;
+            _EmailSenderFactory = emailSenderFactory;
             _RoleManager = roleManager;
             _SettingsRepository = settingsRepository;
+            _Options = options;
             _logger = Logs.PayServer;
         }
 
@@ -271,12 +274,20 @@ namespace BTCPayServer.Controllers
                     {
                         await _RoleManager.CreateAsync(new IdentityRole(Roles.ServerAdmin));
                         await _userManager.AddToRoleAsync(user, Roles.ServerAdmin);
+
+                        if(_Options.DisableRegistration)
+                        {
+                            // Once the admin user has been created lock subsequent user registrations (needs to be disabled for unit tests that require multiple users).
+                            policies.LockSubscription = true;
+                            await _SettingsRepository.UpdateSetting(policies);
+                        }
                     }
 
                     var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                     var callbackUrl = Url.EmailConfirmationLink(user.Id, code, Request.Scheme);
                     RegisteredUserId = user.Id;
-                    await _emailSender.SendEmailConfirmationAsync(model.Email, callbackUrl);
+
+                    _EmailSenderFactory.GetEmailSender().SendEmailConfirmation(model.Email, callbackUrl);
                     if (!policies.RequiresConfirmedEmail)
                     {
                         if(logon)
@@ -436,8 +447,9 @@ namespace BTCPayServer.Controllers
                 // visit https://go.microsoft.com/fwlink/?LinkID=532713
                 var code = await _userManager.GeneratePasswordResetTokenAsync(user);
                 var callbackUrl = Url.ResetPasswordCallbackLink(user.Id, code, Request.Scheme);
-                await _emailSender.SendEmailAsync(model.Email, "Reset Password",
-                   $"Please reset your password by clicking here: <a href='{callbackUrl}'>link</a>");
+                _EmailSenderFactory.GetEmailSender().SendEmail(model.Email, "Reset Password",
+                    $"Please reset your password by clicking here: <a href='{callbackUrl}'>link</a>");
+                
                 return RedirectToAction(nameof(ForgotPasswordConfirmation));
             }
 

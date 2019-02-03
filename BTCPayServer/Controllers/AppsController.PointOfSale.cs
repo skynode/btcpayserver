@@ -1,5 +1,8 @@
-﻿using System.Text;
+﻿using System;
+using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Models.AppViewModels;
@@ -15,7 +18,7 @@ namespace BTCPayServer.Controllers
         {
             public PointOfSaleSettings()
             {
-                Title = "My awesome Point of Sale";
+                Title = "Tea shop";
                 Currency = "USD";
                 Template =
                     "green tea:\n" +
@@ -41,19 +44,35 @@ namespace BTCPayServer.Controllers
                     "herbal tea:\n" +
                     "  price: 1.8\n" +
                     "  title: Herbal Tea\n" +
-                    "  description: Chamomile tea is made from the flower heads of the chamomile plant. The medicinal use of chamomile dates back to the ancient Egyptians, Romans and Greeks.\n" +
-                    "  image: https://cdn.pixabay.com/photo/2015/07/02/20/57/chamomile-829538__480.jpg\n\n" +
+                    "  description: Chamomile tea is made from the flower heads of the chamomile plant. The medicinal use of chamomile dates back to the ancient Egyptians, Romans and Greeks. Pay us what you want!\n" +
+                    "  image: https://cdn.pixabay.com/photo/2015/07/02/20/57/chamomile-829538__480.jpg\n" +
+                    "  custom: true\n\n" +
                     "fruit tea:\n" +
                     "  price: 1.5\n" +
                     "  title: Fruit Tea\n" +
-                    "  description: The Tibetan Himalayas, the land is majestic and beautiful—a spiritual place where, despite the perilous environment, many journey seeking enlightenment.\n" +
-                    "  image: https://cdn.pixabay.com/photo/2016/09/16/11/24/darts-1673812__480.jpg";
+                    "  description: The Tibetan Himalayas, the land is majestic and beautiful—a spiritual place where, despite the perilous environment, many journey seeking enlightenment. Pay us what you want!\n" +
+                    "  image: https://cdn.pixabay.com/photo/2016/09/16/11/24/darts-1673812__480.jpg\n" +
+                    "  custom: true";
+                EnableShoppingCart = false;
                 ShowCustomAmount = true;
             }
             public string Title { get; set; }
             public string Currency { get; set; }
             public string Template { get; set; }
+            public bool EnableShoppingCart { get; set; }
             public bool ShowCustomAmount { get; set; }
+
+            public const string BUTTON_TEXT_DEF = "Buy for {0}";
+            public string ButtonText { get; set; } = BUTTON_TEXT_DEF;
+            public const string CUSTOM_BUTTON_TEXT_DEF = "Pay";
+            public string CustomButtonText { get; set; } = CUSTOM_BUTTON_TEXT_DEF;
+            public const string CUSTOM_TIP_TEXT_DEF = "Do you want to leave a tip?";
+            public string CustomTipText { get; set; } = CUSTOM_TIP_TEXT_DEF;
+            public static readonly int[] CUSTOM_TIP_PERCENTAGES_DEF = new int[] { 15, 18, 20 };
+            public int[] CustomTipPercentages { get; set; } = CUSTOM_TIP_PERCENTAGES_DEF;
+
+
+            public string CustomCSSLink { get; set; }
         }
 
         [HttpGet]
@@ -66,10 +85,17 @@ namespace BTCPayServer.Controllers
             var settings = app.GetSettings<PointOfSaleSettings>();
             var vm = new UpdatePointOfSaleViewModel()
             {
+                Id = appId,
                 Title = settings.Title,
+                EnableShoppingCart = settings.EnableShoppingCart,
                 ShowCustomAmount = settings.ShowCustomAmount,
                 Currency = settings.Currency,
-                Template = settings.Template
+                Template = settings.Template,
+                ButtonText = settings.ButtonText ?? PointOfSaleSettings.BUTTON_TEXT_DEF,
+                CustomButtonText = settings.CustomButtonText ?? PointOfSaleSettings.CUSTOM_BUTTON_TEXT_DEF,
+                CustomTipText = settings.CustomTipText ?? PointOfSaleSettings.CUSTOM_TIP_TEXT_DEF,
+                CustomTipPercentages = settings.CustomTipPercentages != null ? string.Join(",", settings.CustomTipPercentages) : string.Join(",", PointOfSaleSettings.CUSTOM_TIP_PERCENTAGES_DEF),
+                CustomCSSLink = settings.CustomCSSLink
             };
             if (HttpContext?.Request != null)
             {
@@ -132,9 +158,15 @@ namespace BTCPayServer.Controllers
             app.SetSettings(new PointOfSaleSettings()
             {
                 Title = vm.Title,
+                EnableShoppingCart = vm.EnableShoppingCart,
                 ShowCustomAmount = vm.ShowCustomAmount,
                 Currency = vm.Currency.ToUpperInvariant(),
-                Template = vm.Template
+                Template = vm.Template,
+                ButtonText = vm.ButtonText,
+                CustomButtonText = vm.CustomButtonText,
+                CustomTipText = vm.CustomTipText,
+                CustomTipPercentages = ListSplit(vm.CustomTipPercentages),
+                CustomCSSLink = vm.CustomCSSLink
             });
             await UpdateAppSettings(app);
             StatusMessage = "App updated";
@@ -149,6 +181,22 @@ namespace BTCPayServer.Controllers
                 ctx.Entry<AppData>(app).State = EntityState.Modified;
                 ctx.Entry<AppData>(app).Property(a => a.Settings).IsModified = true;
                 await ctx.SaveChangesAsync();
+            }
+        }
+
+        private int[] ListSplit(string list, string separator = ",")
+        {
+            if (string.IsNullOrEmpty(list))
+            {
+                return Array.Empty<int>();
+            } 
+            else 
+            {
+                // Remove all characters except numeric and comma
+                Regex charsToDestroy = new Regex(@"[^\d|\" + separator + "]");
+                list = charsToDestroy.Replace(list, "");
+
+                return list.Split(separator, System.StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToArray();
             }
         }
     }

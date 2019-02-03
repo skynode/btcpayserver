@@ -18,8 +18,10 @@ using System.ComponentModel.DataAnnotations;
 using BTCPayServer.Services;
 using System.Security.Claims;
 using BTCPayServer.Payments.Changelly;
+using BTCPayServer.Payments.CoinSwitch;
 using BTCPayServer.Security;
 using BTCPayServer.Rating;
+using BTCPayServer.Services.Mails;
 
 namespace BTCPayServer.Data
 {
@@ -54,7 +56,6 @@ namespace BTCPayServer.Data
             get;
             set;
         }
-
         public IEnumerable<ISupportedPaymentMethod> GetSupportedPaymentMethods(BTCPayNetworkProvider networks)
         {
 #pragma warning disable CS0618
@@ -193,7 +194,7 @@ namespace BTCPayServer.Data
             get;
             set;
         }
-        [Obsolete("Use GetDefaultCrypto instead")]
+        [Obsolete("Use GetDefaultPaymentId instead")]
         public string DefaultCrypto { get; set; }
         public List<PairedSINData> PairedSINs { get; set; }
         public IEnumerable<APIKeyData> APIKeys { get; set; }
@@ -202,13 +203,32 @@ namespace BTCPayServer.Data
         public List<Claim> AdditionalClaims { get; set; } = new List<Claim>();
 
 #pragma warning disable CS0618
-        public string GetDefaultCrypto(BTCPayNetworkProvider networkProvider = null)
+        public PaymentMethodId GetDefaultPaymentId(BTCPayNetworkProvider networks)
         {
-            return DefaultCrypto ?? (networkProvider == null ? "BTC" : GetSupportedPaymentMethods(networkProvider).Select(p => p.PaymentId.CryptoCode).FirstOrDefault() ?? "BTC");
+            PaymentMethodId[] paymentMethodIds = GetEnabledPaymentIds(networks);
+
+            var defaultPaymentId = string.IsNullOrEmpty(DefaultCrypto) ? null : PaymentMethodId.Parse(DefaultCrypto);
+            var chosen = paymentMethodIds.FirstOrDefault(f => f == defaultPaymentId) ??
+                         paymentMethodIds.FirstOrDefault(f => f.CryptoCode == defaultPaymentId?.CryptoCode) ??
+                         paymentMethodIds.FirstOrDefault();
+            return chosen;
         }
-        public void SetDefaultCrypto(string defaultCryptoCurrency)
+
+        public PaymentMethodId[] GetEnabledPaymentIds(BTCPayNetworkProvider networks)
         {
-            DefaultCrypto = defaultCryptoCurrency;
+            var excludeFilter = GetStoreBlob().GetExcludedPaymentMethods();
+            var paymentMethodIds = GetSupportedPaymentMethods(networks).Select(p => p.PaymentId)
+                                .Where(a => !excludeFilter.Match(a))
+                                .OrderByDescending(a => a.CryptoCode == "BTC")
+                                .ThenBy(a => a.CryptoCode)
+                                .ThenBy(a => a.PaymentType == PaymentTypes.LightningLike ? 1 : 0)
+                                .ToArray();
+            return paymentMethodIds;
+        }
+
+        public void SetDefaultPaymentId(PaymentMethodId defaultPaymentId)
+        {
+            DefaultCrypto = defaultPaymentId.ToString();
         }
 #pragma warning restore CS0618
 
@@ -249,6 +269,12 @@ namespace BTCPayServer.Data
         }
     }
 
+    public enum NetworkFeeMode
+    {
+        MultiplePaymentsOnly,
+        Always,
+        Never
+    }
     public class StoreBlob
     {
         public StoreBlob()
@@ -258,10 +284,21 @@ namespace BTCPayServer.Data
             PaymentTolerance = 0;
             RequiresRefundEmail = true;
         }
-        public bool NetworkFeeDisabled
+
+        [Obsolete("Use NetworkFeeMode instead")]
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool? NetworkFeeDisabled
         {
             get; set;
         }
+
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public NetworkFeeMode NetworkFeeMode
+        {
+            get;
+            set;
+        }
+
         public bool RequiresRefundEmail { get; set; }
 
         public string DefaultLang { get; set; }
@@ -305,6 +342,7 @@ namespace BTCPayServer.Data
         public bool AnyoneCanInvoice { get; set; }
         
         public ChangellySettings ChangellySettings { get; set; }
+        public CoinSwitchSettings CoinSwitchSettings { get; set; }
 
 
         string _LightningDescriptionTemplate;
@@ -366,6 +404,25 @@ namespace BTCPayServer.Data
 
         [Obsolete("Use GetExcludedPaymentMethods instead")]
         public string[] ExcludedPaymentMethods { get; set; }
+#pragma warning disable CS0618 // Type or member is obsolete
+        public void SetWalletKeyPathRoot(PaymentMethodId paymentMethodId, KeyPath keyPath)
+        {
+            if (keyPath == null)
+                WalletKeyPathRoots.Remove(paymentMethodId.ToString());
+            else
+                WalletKeyPathRoots.AddOrReplace(paymentMethodId.ToString().ToLowerInvariant(), keyPath.ToString());
+        }
+        public KeyPath GetWalletKeyPathRoot(PaymentMethodId paymentMethodId)
+        {
+            if (WalletKeyPathRoots.TryGetValue(paymentMethodId.ToString().ToLowerInvariant(), out var k))
+                return KeyPath.Parse(k);
+            return null;
+        }
+#pragma warning restore CS0618 // Type or member is obsolete
+        [Obsolete("Use SetWalletKeyPathRoot/GetWalletKeyPathRoot instead")]
+        public Dictionary<string, string> WalletKeyPathRoots { get; set; } = new Dictionary<string, string>();
+
+        public EmailSettings EmailSettings { get; set; }
 
         public IPaymentFilter GetExcludedPaymentMethods()
         {

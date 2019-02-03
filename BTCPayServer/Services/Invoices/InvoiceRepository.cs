@@ -41,7 +41,7 @@ namespace BTCPayServer.Services.Invoices
         public InvoiceRepository(ApplicationDbContextFactory contextFactory, string dbreezePath)
         {
             int retryCount = 0;
-            retry:
+retry:
             try
             {
                 _Engine = new DBreezeEngine(dbreezePath);
@@ -126,7 +126,9 @@ namespace BTCPayServer.Services.Invoices
                     Created = invoice.InvoiceTime,
                     Blob = ToBytes(invoice, null),
                     OrderId = invoice.OrderId,
-                    Status = invoice.Status,
+#pragma warning disable CS0618 // Type or member is obsolete
+                    Status = invoice.StatusString,
+#pragma warning restore CS0618 // Type or member is obsolete
                     ItemCode = invoice.ProductInformation.ItemCode,
                     CustomerEmail = invoice.RefundMail
                 });
@@ -176,7 +178,6 @@ namespace BTCPayServer.Services.Invoices
             textSearch.Add(invoice.StoreId);
 
             AddToTextSearch(invoice.Id, textSearch.ToArray());
-
             return invoice;
         }
 
@@ -191,7 +192,7 @@ namespace BTCPayServer.Services.Invoices
             return paymentMethod.GetPaymentMethodDetails().GetPaymentDestination();
         }
 
-        public async Task<bool> NewAddress(string invoiceId, IPaymentMethodDetails paymentMethod, BTCPayNetwork network)
+        public async Task<bool> NewAddress(string invoiceId, Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod paymentMethod, BTCPayNetwork network)
         {
             using (var context = _ContextFactory.CreateContext())
             {
@@ -204,14 +205,13 @@ namespace BTCPayServer.Services.Invoices
                 if (currencyData == null)
                     return false;
 
-                var existingPaymentMethod = currencyData.GetPaymentMethodDetails();
+                var existingPaymentMethod = (Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod)currencyData.GetPaymentMethodDetails();
                 if (existingPaymentMethod.GetPaymentDestination() != null)
                 {
                     MarkUnassigned(invoiceId, invoiceEntity, context, currencyData.GetId());
                 }
 
                 existingPaymentMethod.SetPaymentDestination(paymentMethod.GetPaymentDestination());
-
                 currencyData.SetPaymentMethodDetails(existingPaymentMethod);
 #pragma warning disable CS0618
                 if (network.IsBTC)
@@ -316,15 +316,15 @@ namespace BTCPayServer.Services.Invoices
             });
         }
 
-        public async Task UpdateInvoiceStatus(string invoiceId, string status, string exceptionStatus)
+        public async Task UpdateInvoiceStatus(string invoiceId, InvoiceState invoiceState)
         {
             using (var context = _ContextFactory.CreateContext())
             {
                 var invoiceData = await context.FindAsync<Data.InvoiceData>(invoiceId).ConfigureAwait(false);
                 if (invoiceData == null)
                     return;
-                invoiceData.Status = status;
-                invoiceData.ExceptionStatus = exceptionStatus;
+                invoiceData.Status = InvoiceState.ToString(invoiceState.Status);
+                invoiceData.ExceptionStatus = InvoiceState.ToString(invoiceState.ExceptionStatus);
                 await context.SaveChangesAsync().ConfigureAwait(false);
             }
         }
@@ -334,13 +334,26 @@ namespace BTCPayServer.Services.Invoices
             using (var context = _ContextFactory.CreateContext())
             {
                 var invoiceData = await context.FindAsync<Data.InvoiceData>(invoiceId).ConfigureAwait(false);
-                if (invoiceData?.Status != "paid")
+                if (invoiceData == null || !invoiceData.GetInvoiceState().CanMarkInvalid())
                     return;
                 invoiceData.Status = "invalid";
+                invoiceData.ExceptionStatus = "marked";
                 await context.SaveChangesAsync().ConfigureAwait(false);
             }
         }
-        public async Task<InvoiceEntity> GetInvoice(string storeId, string id, bool inludeAddressData = false)
+        public async Task UpdatePaidInvoiceToComplete(string invoiceId)
+        {
+            using (var context = _ContextFactory.CreateContext())
+            {
+                var invoiceData = await context.FindAsync<Data.InvoiceData>(invoiceId).ConfigureAwait(false);
+                if (invoiceData == null || !invoiceData.GetInvoiceState().CanMarkComplete())
+                    return;
+                invoiceData.Status = "complete";
+                invoiceData.ExceptionStatus = "marked";
+                await context.SaveChangesAsync().ConfigureAwait(false);
+            }
+        }
+        public async Task<InvoiceEntity> GetInvoice(string id, bool inludeAddressData = false)
         {
             using (var context = _ContextFactory.CreateContext())
             {
@@ -353,9 +366,6 @@ namespace BTCPayServer.Services.Invoices
                     query = query.Include(o => o.HistoricalAddressInvoices).Include(o => o.AddressInvoices);
                 query = query.Where(i => i.Id == id);
 
-                if (storeId != null)
-                    query = query.Where(i => i.StoreDataId == storeId);
-
                 var invoice = await query.FirstOrDefaultAsync().ConfigureAwait(false);
                 if (invoice == null)
                     return null;
@@ -367,16 +377,31 @@ namespace BTCPayServer.Services.Invoices
         private InvoiceEntity ToEntity(Data.InvoiceData invoice)
         {
             var entity = ToObject<InvoiceEntity>(invoice.Blob, null);
+            PaymentMethodDictionary paymentMethods = null;
 #pragma warning disable CS0618
             entity.Payments = invoice.Payments.Select(p =>
             {
                 var paymentEntity = ToObject<PaymentEntity>(p.Blob, null);
                 paymentEntity.Accounted = p.Accounted;
+
+                // PaymentEntity on version 0 does not have their own fee, because it was assumed that the payment method have fixed fee.
+                // We want to hide this legacy detail in InvoiceRepository, so we fetch the fee from the PaymentMethod and assign it to the PaymentEntity.
+                if (paymentEntity.Version == 0)
+                {
+                    if (paymentMethods == null)
+                        paymentMethods = entity.GetPaymentMethods(null);
+                    var paymentMethodDetails = paymentMethods.TryGet(paymentEntity.GetPaymentMethodId())?.GetPaymentMethodDetails();
+                    if (paymentMethodDetails != null) // == null should never happen, but we never know.
+                        paymentEntity.NetworkFee = paymentMethodDetails.GetNextNetworkFee();
+                }
+
                 return paymentEntity;
-            }).ToList();
+            })
+            .OrderBy(a => a.ReceivedTime).ToList();
 #pragma warning restore CS0618
-            entity.ExceptionStatus = invoice.ExceptionStatus;
-            entity.Status = invoice.Status;
+            var state = invoice.GetInvoiceState();
+            entity.ExceptionStatus = state.ExceptionStatus;
+            entity.Status = state.Status;
             entity.RefundMail = invoice.CustomerEmail;
             entity.Refundable = invoice.RefundAddresses.Count != 0;
             if (invoice.HistoricalAddressInvoices != null)
@@ -394,86 +419,108 @@ namespace BTCPayServer.Services.Invoices
             return entity;
         }
 
+        private IQueryable<Data.InvoiceData> GetInvoiceQuery(ApplicationDbContext context, InvoiceQuery queryObject)
+        {
+            IQueryable<Data.InvoiceData> query = context.Invoices;
+
+            if (!string.IsNullOrEmpty(queryObject.InvoiceId))
+            {
+                query = query.Where(i => i.Id == queryObject.InvoiceId);
+            }
+
+            if (queryObject.StoreId != null && queryObject.StoreId.Length > 0)
+            {
+                var stores = queryObject.StoreId.ToHashSet();
+                query = query.Where(i => stores.Contains(i.StoreDataId));
+            }
+
+            if (queryObject.UserId != null)
+            {
+                query = query.Where(i => i.StoreData.UserStores.Any(u => u.ApplicationUserId == queryObject.UserId));
+            }
+
+            if (!string.IsNullOrEmpty(queryObject.TextSearch))
+            {
+                var ids = new HashSet<string>(SearchInvoice(queryObject.TextSearch));
+                if (ids.Count == 0)
+                {
+                    // Hacky way to return an empty query object. The nice way is much too elaborate:
+                    // https://stackoverflow.com/questions/33305495/how-to-return-empty-iqueryable-in-an-async-repository-method
+                    return query.Where(x => false); 
+                }
+                query = query.Where(i => ids.Contains(i.Id));
+            }
+
+            if (queryObject.StartDate != null)
+                query = query.Where(i => queryObject.StartDate.Value <= i.Created);
+
+            if (queryObject.EndDate != null)
+                query = query.Where(i => i.Created <= queryObject.EndDate.Value);
+
+            if (queryObject.OrderId != null && queryObject.OrderId.Length > 0)
+            {
+                var statusSet = queryObject.OrderId.ToHashSet();
+                query = query.Where(i => statusSet.Contains(i.OrderId));
+            }
+            if (queryObject.ItemCode != null && queryObject.ItemCode.Length > 0)
+            {
+                var statusSet = queryObject.ItemCode.ToHashSet();
+                query = query.Where(i => statusSet.Contains(i.ItemCode));
+            }
+
+            if (queryObject.Status != null && queryObject.Status.Length > 0)
+            {
+                var statusSet = queryObject.Status.ToHashSet();
+                query = query.Where(i => statusSet.Contains(i.Status));
+            }
+
+            if (queryObject.Unusual != null)
+            {
+                var unused = queryObject.Unusual.Value;
+                query = query.Where(i => unused == (i.Status == "invalid" || i.ExceptionStatus != null));
+            }
+
+            if (queryObject.ExceptionStatus != null && queryObject.ExceptionStatus.Length > 0)
+            {
+                var exceptionStatusSet = queryObject.ExceptionStatus.Select(s => NormalizeExceptionStatus(s)).ToHashSet();
+                query = query.Where(i => exceptionStatusSet.Contains(i.ExceptionStatus));
+            }
+
+            query = query.OrderByDescending(q => q.Created);
+
+            if (queryObject.Skip != null)
+                query = query.Skip(queryObject.Skip.Value);
+
+            if (queryObject.Count != null)
+                query = query.Take(queryObject.Count.Value);
+
+            return query;
+        }
+
+        public async Task<int> GetInvoicesTotal(InvoiceQuery queryObject)
+        {
+            using (var context = _ContextFactory.CreateContext())
+            {
+                var query = GetInvoiceQuery(context, queryObject);
+                return await query.CountAsync();
+            }
+        }
 
         public async Task<InvoiceEntity[]> GetInvoices(InvoiceQuery queryObject)
         {
             using (var context = _ContextFactory.CreateContext())
             {
-                IQueryable<Data.InvoiceData> query = context
-                    .Invoices
-                    .Include(o => o.Payments)
+                var query = GetInvoiceQuery(context, queryObject);
+                query = query.Include(o => o.Payments)
                     .Include(o => o.RefundAddresses);
                 if (queryObject.IncludeAddresses)
                     query = query.Include(o => o.HistoricalAddressInvoices).Include(o => o.AddressInvoices);
                 if (queryObject.IncludeEvents)
                     query = query.Include(o => o.Events);
-                if (!string.IsNullOrEmpty(queryObject.InvoiceId))
-                {
-                    query = query.Where(i => i.Id == queryObject.InvoiceId);
-                }
-
-                if (queryObject.StoreId != null && queryObject.StoreId.Length > 0)
-                {
-                    var stores = queryObject.StoreId.ToHashSet();
-                    query = query.Where(i => stores.Contains(i.StoreDataId));
-                }
-
-                if (queryObject.UserId != null)
-                {
-                    query = query.Where(i => i.StoreData.UserStores.Any(u => u.ApplicationUserId == queryObject.UserId));
-                }
-
-                if (!string.IsNullOrEmpty(queryObject.TextSearch))
-                {
-                    var ids = new HashSet<string>(SearchInvoice(queryObject.TextSearch));
-                    if (ids.Count == 0)
-                        return Array.Empty<InvoiceEntity>();
-                    query = query.Where(i => ids.Contains(i.Id));
-                }
-
-                if (queryObject.StartDate != null)
-                    query = query.Where(i => queryObject.StartDate.Value <= i.Created);
-
-                if (queryObject.EndDate != null)
-                    query = query.Where(i => i.Created <= queryObject.EndDate.Value);
-
-                if (queryObject.ItemCode != null)
-                    query = query.Where(i => i.ItemCode == queryObject.ItemCode);
-
-                if (queryObject.OrderId != null)
-                    query = query.Where(i => i.OrderId == queryObject.OrderId);
-
-                if (queryObject.Status != null && queryObject.Status.Length > 0)
-                {
-                    var statusSet = queryObject.Status.ToHashSet();
-                    query = query.Where(i => statusSet.Contains(i.Status));
-                }
-
-                if (queryObject.Unusual != null)
-                {
-                    var unused = queryObject.Unusual.Value;
-                    query = query.Where(i => unused == (i.Status == "invalid" || i.ExceptionStatus != null));
-                }
-
-                if (queryObject.ExceptionStatus != null && queryObject.ExceptionStatus.Length > 0)
-                {
-                    var exceptionStatusSet = queryObject.ExceptionStatus.Select(s => NormalizeExceptionStatus(s)).ToHashSet();
-                    query = query.Where(i => exceptionStatusSet.Contains(i.ExceptionStatus));
-                }
-
-                query = query.OrderByDescending(q => q.Created);
-
-                if (queryObject.Skip != null)
-                    query = query.Skip(queryObject.Skip.Value);
-
-                if (queryObject.Count != null)
-                    query = query.Take(queryObject.Count.Value);
 
                 var data = await query.ToArrayAsync().ConfigureAwait(false);
-
                 return data.Select(ToEntity).ToArray();
             }
-
         }
 
         private string NormalizeExceptionStatus(string status)
@@ -533,21 +580,37 @@ namespace BTCPayServer.Services.Invoices
         /// <param name="cryptoCode"></param>
         /// <param name="accounted"></param>
         /// <returns>The PaymentEntity or null if already added</returns>
-        public async Task<PaymentEntity> AddPayment(string invoiceId, DateTimeOffset date, CryptoPaymentData paymentData, string cryptoCode, bool accounted = false)
+        public async Task<PaymentEntity> AddPayment(string invoiceId, DateTimeOffset date, CryptoPaymentData paymentData, BTCPayNetwork network, bool accounted = false)
         {
             using (var context = _ContextFactory.CreateContext())
             {
+                var invoice = context.Invoices.Find(invoiceId);
+                if (invoice == null)
+                    return null;
+                InvoiceEntity invoiceEntity = ToObject<InvoiceEntity>(invoice.Blob, network.NBitcoinNetwork);
+                PaymentMethod paymentMethod = invoiceEntity.GetPaymentMethod(new PaymentMethodId(network.CryptoCode, paymentData.GetPaymentType()), null);
+                IPaymentMethodDetails paymentMethodDetails = paymentMethod.GetPaymentMethodDetails();
                 PaymentEntity entity = new PaymentEntity
                 {
+                    Version = 1,
 #pragma warning disable CS0618
-                    CryptoCode = cryptoCode,
+                    CryptoCode = network.CryptoCode,
 #pragma warning restore CS0618
                     ReceivedTime = date.UtcDateTime,
-                    Accounted = accounted
+                    Accounted = accounted,
+                    NetworkFee = paymentMethodDetails.GetNextNetworkFee()
                 };
                 entity.SetCryptoPaymentData(paymentData);
 
-
+                if (paymentMethodDetails is Payments.Bitcoin.BitcoinLikeOnChainPaymentMethod bitcoinPaymentMethod &&
+                    bitcoinPaymentMethod.NetworkFeeMode == NetworkFeeMode.MultiplePaymentsOnly &&
+                    bitcoinPaymentMethod.NextNetworkFee == Money.Zero)
+                {
+                    bitcoinPaymentMethod.NextNetworkFee = bitcoinPaymentMethod.FeeRate.GetFee(100); // assume price for 100 bytes
+                    paymentMethod.SetPaymentMethodDetails(bitcoinPaymentMethod);
+                    invoiceEntity.SetPaymentMethod(paymentMethod);
+                    invoice.Blob = ToBytes(invoiceEntity, network.NBitcoinNetwork);
+                }
                 PaymentData data = new PaymentData
                 {
                     Id = paymentData.GetPaymentId(),
@@ -652,12 +715,12 @@ namespace BTCPayServer.Services.Invoices
             get; set;
         }
 
-        public string OrderId
+        public string[] OrderId
         {
             get; set;
         }
 
-        public string ItemCode
+        public string[] ItemCode
         {
             get; set;
         }

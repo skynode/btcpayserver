@@ -7,6 +7,7 @@ using BTCPayServer.Lightning;
 using BTCPayServer.Lightning.JsonConverters;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Services.Invoices;
+using NBitcoin;
 using Newtonsoft.Json;
 
 namespace BTCPayServer.Payments.Lightning
@@ -16,9 +17,21 @@ namespace BTCPayServer.Payments.Lightning
         [JsonConverter(typeof(LightMoneyJsonConverter))]
         public LightMoney Amount { get; set; }
         public string BOLT11 { get; set; }
-        public string GetPaymentId()
+        [JsonConverter(typeof(NBitcoin.JsonConverters.UInt256JsonConverter))]
+        public uint256 PaymentHash { get; set; }
+
+        public string GetDestination(BTCPayNetwork network)
         {
             return BOLT11;
+        }
+
+        public decimal NetworkFee { get; set; }
+
+
+        public string GetPaymentId()
+        {
+            // Legacy, some old payments don't have the PaymentHash set
+            return PaymentHash?.ToString() ?? BOLT11;
         }
 
         public PaymentTypes GetPaymentType()

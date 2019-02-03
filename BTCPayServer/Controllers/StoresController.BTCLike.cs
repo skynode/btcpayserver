@@ -46,7 +46,7 @@ namespace BTCPayServer.Controllers
             string storeId,
             string cryptoCode,
             string command,
-            int account = 0)
+            string keyPath = "")
         {
             if (!HttpContext.WebSockets.IsWebSocketRequest)
                 return NotFound();
@@ -67,7 +67,10 @@ namespace BTCPayServer.Controllers
                     }
                     if (command == "getxpub")
                     {
-                        var getxpubResult = await hw.GetExtPubKey(network, account, normalOperationTimeout.Token);
+                        var k = KeyPath.Parse(keyPath);
+                        if (k.Indexes.Length == 0)
+                            throw new FormatException("Invalid key path");
+                        var getxpubResult = await hw.GetExtPubKey(network, k, normalOperationTimeout.Token);
                         result = getxpubResult;
                     }
                 }
@@ -163,6 +166,7 @@ namespace BTCPayServer.Controllers
                               // - The user is clicking on continue without changing anything   
                               (!vm.Confirmation && willBeExcluded == wasExcluded);
 
+            showAddress = showAddress && strategy != null;
             if (!showAddress)
             {
                 try
@@ -170,7 +174,8 @@ namespace BTCPayServer.Controllers
                     if (strategy != null)
                         await wallet.TrackAsync(strategy.DerivationStrategyBase);
                     store.SetSupportedPaymentMethod(paymentMethodId, strategy);
-                    storeBlob.SetExcluded(paymentMethodId, willBeExcluded);
+                    storeBlob.SetExcluded(paymentMethodId, willBeExcluded);                    
+                    storeBlob.SetWalletKeyPathRoot(paymentMethodId, vm.KeyPath == null ? null : KeyPath.Parse(vm.KeyPath));
                     store.SetStoreBlob(storeBlob);
                 }
                 catch

@@ -15,6 +15,10 @@ namespace BTCPayServer.Models.InvoicingModels
         {
             get; set;
         }
+        public int Total
+        {
+            get; set;
+        }
         public string SearchTerm
         {
             get; set;
@@ -46,6 +50,9 @@ namespace BTCPayServer.Models.InvoicingModels
         {
             get; set;
         }
+        public bool CanMarkComplete { get; set; }
+        public bool CanMarkInvalid { get; set; }
+        public bool CanMarkStatus => CanMarkComplete || CanMarkInvalid;
         public bool ShowCheckout { get; set; }
         public string ExceptionStatus { get; set; }
         public string AmountCurrency

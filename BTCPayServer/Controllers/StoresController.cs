@@ -10,7 +10,9 @@ using BTCPayServer.Data;
 using BTCPayServer.Models;
 using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Models.StoreViewModels;
+using BTCPayServer.Payments;
 using BTCPayServer.Payments.Changelly;
+using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Rating;
 using BTCPayServer.Security;
 using BTCPayServer.Services;
@@ -94,6 +96,11 @@ namespace BTCPayServer.Controllers
         {
             get; set;
         }
+        [TempData]
+        public bool StoreNotConfigured
+        {
+            get; set;
+        }
 
         [HttpGet]
         [Route("{storeId}/users")]
@@ -165,7 +172,7 @@ namespace BTCPayServer.Controllers
             return View("Confirm", new ConfirmModel()
             {
                 Title = $"Remove store user",
-                Description = $"Are you sure to remove access to remove access to {user.Email}?",
+                Description = $"Are you sure you want to remove store access for {user.Email}?",
                 Action = "Delete"
             });
         }
@@ -324,7 +331,7 @@ namespace BTCPayServer.Controllers
         {
             var storeBlob = StoreData.GetStoreBlob();
             var vm = new CheckoutExperienceViewModel();
-            vm.SetCryptoCurrencies(_ExplorerProvider, StoreData.GetDefaultCrypto(_NetworkProvider));
+            SetCryptoCurrencies(vm, StoreData);
             vm.SetLanguages(_LangService, storeBlob.DefaultLang);
             vm.LightningMaxValue = storeBlob.LightningMaxValue?.ToString() ?? "";
             vm.OnChainMinValue = storeBlob.OnChainMinValue?.ToString() ?? "";
@@ -333,6 +340,23 @@ namespace BTCPayServer.Controllers
             vm.CustomLogo = storeBlob.CustomLogo?.AbsoluteUri;
             vm.HtmlTitle = storeBlob.HtmlTitle;
             return View(vm);
+        }
+        void SetCryptoCurrencies(CheckoutExperienceViewModel vm, Data.StoreData storeData)
+        {
+            var choices = storeData.GetEnabledPaymentIds(_NetworkProvider)
+                                      .Select(o => new CheckoutExperienceViewModel.Format() { Name = GetDisplayName(o), Value = o.ToString(), PaymentId = o }).ToArray();
+
+            var defaultPaymentId = storeData.GetDefaultPaymentId(_NetworkProvider);
+            var chosen = choices.FirstOrDefault(c => c.PaymentId == defaultPaymentId);
+            vm.CryptoCurrencies = new SelectList(choices, nameof(chosen.Value), nameof(chosen.Name), chosen?.Value);
+            vm.DefaultPaymentMethod = chosen?.Value;
+        }
+
+        private string GetDisplayName(PaymentMethodId paymentMethodId)
+        {
+            var display = _NetworkProvider.GetNetwork(paymentMethodId.CryptoCode)?.DisplayName ?? paymentMethodId.CryptoCode;
+            return paymentMethodId.PaymentType == PaymentTypes.BTCLike ?
+                display : $"{display} (Lightning)";
         }
 
         [HttpPost]
@@ -358,12 +382,13 @@ namespace BTCPayServer.Controllers
             }
             bool needUpdate = false;
             var blob = StoreData.GetStoreBlob();
-            if (StoreData.GetDefaultCrypto(_NetworkProvider) != model.DefaultCryptoCurrency)
+            var defaultPaymentMethodId = model.DefaultPaymentMethod == null ? null : PaymentMethodId.Parse(model.DefaultPaymentMethod);
+            if (StoreData.GetDefaultPaymentId(_NetworkProvider) != defaultPaymentMethodId)
             {
                 needUpdate = true;
-                StoreData.SetDefaultCrypto(model.DefaultCryptoCurrency);
+                StoreData.SetDefaultPaymentId(defaultPaymentMethodId);
             }
-            model.SetCryptoCurrencies(_ExplorerProvider, model.DefaultCryptoCurrency);
+            SetCryptoCurrencies(model, StoreData);
             model.SetLanguages(_LangService, model.DefaultLang);
 
             if (!ModelState.IsValid)
@@ -406,7 +431,7 @@ namespace BTCPayServer.Controllers
             vm.Id = store.Id;
             vm.StoreName = store.StoreName;
             vm.StoreWebsite = store.StoreWebsite;
-            vm.NetworkFee = !storeBlob.NetworkFeeDisabled;
+            vm.NetworkFeeMode = storeBlob.NetworkFeeMode;
             vm.AnyoneCanCreateInvoice = storeBlob.AnyoneCanInvoice;
             vm.SpeedPolicy = store.SpeedPolicy;
             vm.CanDelete = _Repo.CanDeleteStores();
@@ -464,6 +489,14 @@ namespace BTCPayServer.Controllers
                 Action = nameof(UpdateChangellySettings),
                 Provider = "Changelly"
             });
+            
+            var coinSwitchEnabled = storeBlob.CoinSwitchSettings != null && storeBlob.CoinSwitchSettings.Enabled;
+            vm.ThirdPartyPaymentMethods.Add(new StoreViewModel.ThirdPartyPaymentMethod()
+            {
+                Enabled = coinSwitchEnabled,
+                Action = nameof(UpdateCoinSwitchSettings),
+                Provider = "CoinSwitch"
+            });
         }
 
         [HttpPost]
@@ -489,7 +522,7 @@ namespace BTCPayServer.Controllers
 
             var blob = StoreData.GetStoreBlob();
             blob.AnyoneCanInvoice = model.AnyoneCanCreateInvoice;
-            blob.NetworkFeeDisabled = !model.NetworkFee;
+            blob.NetworkFeeMode = model.NetworkFeeMode;
             blob.MonitoringExpiration = model.MonitoringExpiration;
             blob.InvoiceExpiration = model.InvoiceExpiration;
             blob.LightningDescriptionTemplate = model.LightningDescriptionTemplate ?? string.Empty;
@@ -557,6 +590,7 @@ namespace BTCPayServer.Controllers
             var model = new TokensViewModel();
             var tokens = await _TokenRepository.GetTokensByStoreIdAsync(StoreData.Id);
             model.StatusMessage = StatusMessage;
+            model.StoreNotConfigured = StoreNotConfigured;
             model.Tokens = tokens.Select(t => new TokenViewModel()
             {
                 Facade = t.Facade,
@@ -784,12 +818,17 @@ namespace BTCPayServer.Controllers
             var pairingResult = await _TokenRepository.PairWithStoreAsync(pairingCode, store.Id);
             if (pairingResult == PairingResult.Complete || pairingResult == PairingResult.Partial)
             {
+                var excludeFilter = store.GetStoreBlob().GetExcludedPaymentMethods();
+                StoreNotConfigured = store.GetSupportedPaymentMethods(_NetworkProvider)
+                                          .Where(p => !excludeFilter.Match(p.PaymentId))
+                                          .Count() == 0;
                 StatusMessage = "Pairing is successful";
                 if (pairingResult == PairingResult.Partial)
                     StatusMessage = "Server initiated pairing code: " + pairingCode;
                 return RedirectToAction(nameof(ListTokens), new
                 {
-                    storeId = store.Id
+                    storeId = store.Id,
+                    pairingCode = pairingCode
                 });
             }
             else

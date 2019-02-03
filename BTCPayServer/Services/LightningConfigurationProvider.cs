@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NBitcoin;
+using NBitcoin.DataEncoders;
 
 namespace BTCPayServer.Services
 {
@@ -27,9 +28,9 @@ namespace BTCPayServer.Services
 
         private void CleanExpired()
         {
-            foreach(var item in _Map)
+            foreach (var item in _Map)
             {
-                if(item.Value.expiration < DateTimeOffset.UtcNow)
+                if (item.Value.expiration < DateTimeOffset.UtcNow)
                 {
                     _Map.TryRemove(item.Key, out var unused);
                 }
@@ -39,17 +40,28 @@ namespace BTCPayServer.Services
 
     public class LightningConfigurations
     {
-        public List<LightningConfiguration> Configurations { get; set; } = new List<LightningConfiguration>();
+        public List<object> Configurations { get; set; } = new List<object>();
     }
-    public class LightningConfiguration
+
+    public class LNDConfiguration
     {
         public string ChainType { get; set; }
         public string Type { get; set; }
         public string CryptoCode { get; set; }
+        public string CertificateThumbprint { get; set; }
+        public string Macaroon { get; set; }
+        public string AdminMacaroon { get; set; }
+        public string ReadonlyMacaroon { get; set; }
+        public string InvoiceMacaroon { get; set; }
+    }
+    public class LightningConfiguration : LNDConfiguration
+    {
         public string Host { get; set; }
         public int Port { get; set; }
         public bool SSL { get; set; }
-        public string CertificateThumbprint { get; set; }
-        public string Macaroon { get; set; }
+    }
+    public class LNDRestConfiguration : LNDConfiguration
+    {
+        public string Uri { get; set; }
     }
 }

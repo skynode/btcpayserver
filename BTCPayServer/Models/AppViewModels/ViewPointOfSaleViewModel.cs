@@ -19,10 +19,34 @@ namespace BTCPayServer.Models.AppViewModels
             public string Image { get; set; }
             public ItemPrice Price { get; set; }
             public string Title { get; set; }
+            public bool Custom { get; set; }
         }
+
+        public class CurrencyInfoData
+        {
+            public bool Prefixed { get; set; }
+            public string CurrencySymbol { get; set; }
+            public string ThousandSeparator { get; set; }
+            public string DecimalSeparator { get; set; }
+            public int Divisibility { get; set; }
+            public bool SymbolSpace { get; set; }
+        }
+
+        public CurrencyInfoData CurrencyInfo { get; set; }
+
+        public bool EnableShoppingCart { get; set; }
         public bool ShowCustomAmount { get; set; }
         public string Step { get; set; }
         public string Title { get; set; }
         public Item[] Items { get; set; }
+        public string CurrencyCode { get; set; }
+        public string CurrencySymbol { get; set; }
+        public string AppId { get; set; }
+        public string ButtonText { get; set; }
+        public string CustomButtonText { get; set; }
+        public string CustomTipText { get; set; }
+        public int[] CustomTipPercentages { get; set; }
+
+        public string CustomCSSLink { get; set; }
     }
 }
