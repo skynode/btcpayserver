@@ -36,17 +36,18 @@ using BTCPayServer.Authentication;
 using Microsoft.Extensions.Caching.Memory;
 using BTCPayServer.Logging;
 using BTCPayServer.HostedServices;
-using Meziantou.AspNetCore.BundleTagHelpers;
 using System.Security.Claims;
-using BTCPayServer.Crowdfund;
-using BTCPayServer.Hubs;
+using BTCPayServer.PaymentRequest;
 using BTCPayServer.Payments.Changelly;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Security;
+using BTCPayServer.Services.PaymentRequests;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using NBXplorer.DerivationStrategy;
 using NicolasDorier.RateLimits;
 using Npgsql;
+using BTCPayServer.Services.Apps;
+using BundlerMinifier.TagHelpers;
 
 namespace BTCPayServer.Hosting
 {
@@ -61,6 +62,9 @@ namespace BTCPayServer.Hosting
             });
             services.AddHttpClient();
             services.TryAddSingleton<SettingsRepository>();
+            services.TryAddSingleton<TorServices>();
+            services.TryAddSingleton<SocketFactory>();
+            services.TryAddSingleton<LightningClientFactoryService>();
             services.TryAddSingleton<InvoicePaymentNotification>();
             services.TryAddSingleton<BTCPayServerOptions>(o => o.GetRequiredService<IOptions<BTCPayServerOptions>>().Value);
             services.TryAddSingleton<InvoiceRepository>(o =>
@@ -75,8 +79,8 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<BTCPayServerEnvironment>();
             services.TryAddSingleton<TokenRepository>();
             services.TryAddSingleton<EventAggregator>();
+            services.TryAddSingleton<PaymentRequestService>();
             services.TryAddSingleton<CoinAverageSettings>();
-            services.TryAddSingleton<CrowdfundHubStreamer>();
             services.TryAddSingleton<ApplicationDbContextFactory>(o => 
             {
                 var opts = o.GetRequiredService<BTCPayServerOptions>();
@@ -107,12 +111,52 @@ namespace BTCPayServer.Hosting
                 return opts.NetworkProvider;
             });
 
-            services.TryAddSingleton<AppsHelper>();
+            services.TryAddSingleton<AppService>();
+            services.TryAddSingleton<Ganss.XSS.HtmlSanitizer>(o =>
+            {
+
+                var htmlSanitizer = new Ganss.XSS.HtmlSanitizer();
+
+
+                htmlSanitizer.RemovingAtRule += (sender, args) =>
+                {
+                };
+                htmlSanitizer.RemovingTag += (sender, args) =>
+                {
+                    if (args.Tag.TagName.Equals("img", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        if (!args.Tag.ClassList.Contains("img-fluid"))
+                        {
+                            args.Tag.ClassList.Add("img-fluid");
+                        }
+
+                        args.Cancel = true;
+                    }
+                };
+
+                htmlSanitizer.RemovingAttribute += (sender, args) =>
+                {
+                    if (args.Tag.TagName.Equals("img", StringComparison.InvariantCultureIgnoreCase) &&
+                        args.Attribute.Name.Equals("src", StringComparison.InvariantCultureIgnoreCase) &&
+                        args.Reason == Ganss.XSS.RemoveReason.NotAllowedUrlValue)
+                    {
+                        args.Cancel = true;
+                    }
+                };
+                htmlSanitizer.RemovingStyle += (sender, args) => { args.Cancel = true; };
+                htmlSanitizer.AllowedAttributes.Add("class");
+                htmlSanitizer.AllowedTags.Add("iframe");
+                htmlSanitizer.AllowedTags.Remove("img");
+                htmlSanitizer.AllowedAttributes.Add("webkitallowfullscreen");
+                htmlSanitizer.AllowedAttributes.Add("allowfullscreen");
+                return htmlSanitizer;
+            });
 
             services.TryAddSingleton<LightningConfigurationProvider>();
             services.TryAddSingleton<LanguageService>();
             services.TryAddSingleton<NBXplorerDashboard>();
             services.TryAddSingleton<StoreRepository>();
+            services.TryAddSingleton<PaymentRequestRepository>();
             services.TryAddSingleton<BTCPayWalletProvider>();
             services.TryAddSingleton<CurrencyNameTable>();
             services.TryAddSingleton<IFeeProviderFactory>(o => new NBXplorerFeeProviderFactory(o.GetRequiredService<ExplorerClientProvider>())
@@ -146,6 +190,9 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<IHostedService, InvoiceWatcher>();
             services.AddSingleton<IHostedService, RatesHostedService>();
             services.AddSingleton<IHostedService, BackgroundJobSchedulerHostedService>();
+            services.AddSingleton<IHostedService, AppHubStreamer>();
+            services.AddSingleton<IHostedService, TorServicesHostedService>();
+            services.AddSingleton<IHostedService, PaymentRequestStreamer>();
             services.AddSingleton<IBackgroundJobClient, BackgroundJobClient>();
             services.AddTransient<IConfigureOptions<MvcOptions>, BTCPayClaimsFilter>();
 
@@ -164,6 +211,7 @@ namespace BTCPayServer.Hosting
             services.AddTransient<AccessTokenController>();
             services.AddTransient<InvoiceController>();
             services.AddTransient<AppsPublicController>();
+            services.AddTransient<PaymentRequestController>();
             // Add application services.
             services.AddSingleton<EmailSenderFactory>();
             // bundling
@@ -171,7 +219,7 @@ namespace BTCPayServer.Hosting
             services.AddAuthorization(o => Policies.AddBTCPayPolicies(o));
             BitpayAuthentication.AddAuthentication(services);
 
-            services.AddBundles();
+            services.AddSingleton<IBundleProvider, ResourceBundleProvider>();
             services.AddTransient<BundleOptions>(provider =>
             {
                 var opts = provider.GetRequiredService<BTCPayServerOptions>();

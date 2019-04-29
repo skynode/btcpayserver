@@ -1,13 +1,16 @@
 ﻿using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
+using BTCPayServer.Payments;
 using BTCPayServer.Services.Rates;
 
 namespace BTCPayServer.Models.AppViewModels
 {
     public class ViewCrowdfundViewModel
     {
+        public string HubPath { get; set; }
         public string StatusMessage{ get; set; }
         public string StoreId { get; set; }
         public string AppId { get; set; }
@@ -30,8 +33,10 @@ namespace BTCPayServer.Models.AppViewModels
         public bool SoundsEnabled { get; set; }
         public string DisqusShortname { get; set; }
         public bool AnimationsEnabled { get; set; }
+        public string[] AnimationColors { get; set; }
+        public string[] Sounds { get; set; }
         public int ResetEveryAmount { get; set; }
-        public string ResetEvery { get; set; }
+        public bool NeverReset { get; set; }
 
         public Dictionary<string, int> PerkCount { get; set; }
 
@@ -50,11 +55,27 @@ namespace BTCPayServer.Models.AppViewModels
             public DateTime? LastResetDate { get; set; }
             public DateTime? NextResetDate { get; set; }
         }
+        public class Contribution
+        {
+            public PaymentMethodId PaymentMehtodId { get; set; }
+            public decimal Value { get; set; }
+            public decimal CurrencyValue { get; set; }
+        }
+        public class Contributions : Dictionary<PaymentMethodId, Contribution>
+        {
+            public Contributions(IEnumerable<KeyValuePair<PaymentMethodId, Contribution>> collection) : base(collection)
+            {
+                TotalCurrency = Values.Select(v => v.CurrencyValue).Sum();
+            }
+            public decimal TotalCurrency { get; }
+        }
 
         public bool Started => !StartDate.HasValue || DateTime.Now.ToUniversalTime() > StartDate;
 
         public bool Ended => !EndDate.HasValue || DateTime.Now.ToUniversalTime() > EndDate;
         public bool DisplayPerksRanking { get; set; }
+        public bool Enabled { get; set; }
+        public string ResetEvery { get; set; }
     }
 
     public class ContributeToCrowdfund

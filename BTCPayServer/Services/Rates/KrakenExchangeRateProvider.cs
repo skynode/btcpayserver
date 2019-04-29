@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Rating;
 using ExchangeSharp;
@@ -28,7 +29,7 @@ namespace BTCPayServer.Services.Rates
             }
             set
             {
-                _LocalClient = null;
+                _LocalClient = value;
             }
         }
 
@@ -38,7 +39,37 @@ namespace BTCPayServer.Services.Rates
         static HttpClient _Client = new HttpClient();
 
         // ExchangeSymbolToGlobalSymbol throws exception which would kill perf
-        ConcurrentDictionary<string, string> notFoundSymbols = new ConcurrentDictionary<string, string>();
+        ConcurrentDictionary<string, string> notFoundSymbols = new ConcurrentDictionary<string, string>(new Dictionary<string, string>()
+        {
+            {"ADAXBT","ADAXBT"},
+            { "BSVUSD","BSVUSD"},
+            { "QTUMEUR","QTUMEUR"},
+            { "QTUMXBT","QTUMXBT"},
+            { "EOSUSD","EOSUSD"},
+            { "XTZUSD","XTZUSD"},
+            { "XREPZUSD","XREPZUSD"},
+            { "ADAEUR","ADAEUR"},
+            { "ADAUSD","ADAUSD"},
+            { "GNOEUR","GNOEUR"},
+            { "XTZETH","XTZETH"},
+            { "XXRPZJPY","XXRPZJPY"},
+            { "XXRPZCAD","XXRPZCAD"},
+            { "XTZEUR","XTZEUR"},
+            { "QTUMETH","QTUMETH"},
+            { "XXLMZUSD","XXLMZUSD"},
+            { "QTUMCAD","QTUMCAD"},
+            { "QTUMUSD","QTUMUSD"},
+            { "XTZXBT","XTZXBT"},
+            { "GNOUSD","GNOUSD"},
+            { "ADAETH","ADAETH"},
+            { "ADACAD","ADACAD"},
+            { "XTZCAD","XTZCAD"},
+            { "BSVEUR","BSVEUR"},
+            { "XZECZJPY","XZECZJPY"},
+            { "XXLMZEUR","XXLMZEUR"},
+            {"EOSEUR","EOSEUR"},
+            {"BSVXBT","BSVXBT"}
+        });
         string[] _Symbols = Array.Empty<string>();
         DateTimeOffset? _LastSymbolUpdate = null;
 
@@ -55,7 +86,7 @@ namespace BTCPayServer.Services.Rates
             { "ZCAD", "CAD" },
         };
 
-        public async Task<ExchangeRates> GetRatesAsync()
+        public async Task<ExchangeRates> GetRatesAsync(CancellationToken cancellationToken)
         {
             var result = new ExchangeRates();
             var symbols = await GetSymbolsAsync();
@@ -135,7 +166,7 @@ namespace BTCPayServer.Services.Rates
             }
         }
 
-        private async Task<T> MakeJsonRequestAsync<T>(string url, string baseUrl = null, Dictionary<string, object> payload = null, string requestMethod = null)
+        private async Task<T> MakeJsonRequestAsync<T>(string url, string baseUrl = null, Dictionary<string, object> payload = null, string requestMethod = null, CancellationToken cancellationToken = default)
         {
             StringBuilder sb = new StringBuilder();
             sb.Append("https://api.kraken.com");
@@ -147,7 +178,7 @@ namespace BTCPayServer.Services.Rates
                 sb.Append(String.Join('&', payload.Select(kv => $"{kv.Key}={kv.Value}").OfType<object>().ToArray()));
             }
             var request = new HttpRequestMessage(HttpMethod.Get, sb.ToString());
-            var response = await HttpClient.SendAsync(request);
+            var response = await HttpClient.SendAsync(request, cancellationToken);
             string stringResult = await response.Content.ReadAsStringAsync();
             var result = JsonConvert.DeserializeObject<T>(stringResult);
             if (result is JToken json)

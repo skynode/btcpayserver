@@ -37,7 +37,7 @@
                 {
                     <span class="mt-3">
                         <span class="h5">@Model.TargetAmount @Model.TargetCurrency</span>
-                        @if (Model.ResetEveryAmount > 0 && Model.ResetEvery != nameof(CrowdfundResetEvery.Never))
+                        @if (Model.ResetEveryAmount > 0 && !Model.NeverReset)
                         {
                             <span> Dynamic</span>
                         }
@@ -135,7 +135,7 @@
                         </div>
                         <div class="col-md-4 col-sm-12">
                             <partial 
-                                name="Crowdfund/ContributeForm"
+                                name="/Views/AppsPublic/Crowdfund/ContributeForm.cshtml"
                                 model="@(new ContributeToCrowdfund()
                                               {
                                                   ViewCrowdfundViewModel = Model,

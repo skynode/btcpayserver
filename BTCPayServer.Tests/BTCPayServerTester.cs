@@ -35,6 +35,7 @@ using System.Text;
 using System.Threading;
 using Xunit;
 using BTCPayServer.Services;
+using System.Net.Http;
 
 namespace BTCPayServer.Tests
 {
@@ -109,7 +110,6 @@ namespace BTCPayServer.Tests
 
             config.AppendLine($"ltc.explorer.url={LTCNBXplorerUri.AbsoluteUri}");
             config.AppendLine($"ltc.explorer.cookiefile=0");
-
             config.AppendLine($"btc.lightning={IntegratedLightning.AbsoluteUri}");
 
             if (TestDatabase == TestDatabases.MySQL && !String.IsNullOrEmpty(MySQL))
@@ -120,15 +120,18 @@ namespace BTCPayServer.Tests
             File.WriteAllText(confPath, config.ToString());
 
             ServerUri = new Uri("http://" + HostName + ":" + Port + "/");
-
+            HttpClient = new HttpClient();
+            HttpClient.BaseAddress = ServerUri;
             Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
             var conf = new DefaultConfiguration() { Logger = Logs.LogProvider.CreateLogger("Console") }.CreateConfiguration(new[] { "--datadir", _Directory, "--conf", confPath, "--disable-registration", "false" });
             _Host = new WebHostBuilder()
                     .UseConfiguration(conf)
+                    .UseContentRoot(FindBTCPayServerDirectory())
                     .ConfigureServices(s =>
                     {
                         s.AddLogging(l =>
                         {
+                            l.AddFilter("System.Net.Http.HttpClient", LogLevel.Critical);
                             l.SetMinimumLevel(LogLevel.Information)
                             .AddFilter("Microsoft", LogLevel.Error)
                             .AddFilter("Hangfire", LogLevel.Error)
@@ -207,6 +210,14 @@ namespace BTCPayServer.Tests
                 rateProvider.Providers.Add("bittrex", bittrex);
             }
         }
+
+        private string FindBTCPayServerDirectory()
+        {
+            var solutionDirectory = LanguageService.TryGetSolutionDirectoryInfo(Directory.GetCurrentDirectory());
+            return Path.Combine(solutionDirectory.FullName, "BTCPayServer");
+        }
+
+        public HttpClient HttpClient { get; set; }
 
         public string HostName
         {

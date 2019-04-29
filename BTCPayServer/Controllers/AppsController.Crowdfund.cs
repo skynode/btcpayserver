@@ -1,51 +1,26 @@
 ﻿using System;
+using System.Linq;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Services.Apps;
+using BTCPayServer.Services.Mails;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BTCPayServer.Controllers
 {
     public partial class AppsController
     {
-        public class CrowdfundAppUpdated
+        public class AppUpdated
         {
             public string AppId { get; set; }
-            public CrowdfundSettings Settings { get; set; }
+            public object Settings { get; set; }
             public string StoreId { get; set; }
-        }
-        
-        public class CrowdfundSettings
-        {
-            public string Title { get; set; }
-            public string Description { get; set; }
-            public bool Enabled { get; set; } = false;
-        
-            public DateTime? StartDate { get; set; }
-            public DateTime? EndDate { get; set; }
-        
-            public string TargetCurrency { get; set; }
-            public decimal? TargetAmount { get; set; }
-        
-            public bool EnforceTargetAmount { get; set; }
-            public string CustomCSSLink { get; set; }
-            public string MainImageUrl { get; set; }
-            public string NotificationUrl { get; set; }
-            public string Tagline { get; set; }
-            public string EmbeddedCSS { get; set; }
-            public string PerksTemplate { get; set; }
-            public bool DisqusEnabled { get; set; }= false;
-            public bool SoundsEnabled { get; set; }= true;
-            public string DisqusShortname { get; set; }
-            public bool AnimationsEnabled { get; set; } = true;
-            public bool UseInvoiceAmount { get; set; } = true;
-            public int ResetEveryAmount { get; set; } = 1;
-            public CrowdfundResetEvery ResetEvery { get; set; } = CrowdfundResetEvery.Never;
-            public bool UseAllStoreInvoices { get; set; }
-            public bool DisplayPerksRanking { get; set; }
-            public bool SortPerksByPopularity { get; set; }
+            public override string ToString()
+            {
+                return String.Empty;
+            }
         }
         
         
@@ -59,6 +34,7 @@ namespace BTCPayServer.Controllers
             var settings = app.GetSettings<CrowdfundSettings>();
             var vm = new UpdateCrowdfundViewModel()
             {
+                NotificationEmailWarning = !await IsEmailConfigured(app.StoreDataId),
                 Title = settings.Title,
                 Enabled = settings.Enabled,
                 EnforceTargetAmount = settings.EnforceTargetAmount,
@@ -77,13 +53,15 @@ namespace BTCPayServer.Controllers
                 SoundsEnabled = settings.SoundsEnabled,
                 DisqusShortname = settings.DisqusShortname,
                 AnimationsEnabled = settings.AnimationsEnabled,
-                UseInvoiceAmount = settings.UseInvoiceAmount,
                 ResetEveryAmount = settings.ResetEveryAmount,
                 ResetEvery = Enum.GetName(typeof(CrowdfundResetEvery), settings.ResetEvery),
-                UseAllStoreInvoices = settings.UseAllStoreInvoices,
+                UseAllStoreInvoices = app.TagAllInvoices,
                 AppId = appId,
+                SearchTerm = app.TagAllInvoices ? $"storeid:{app.StoreDataId}" : $"orderid:{AppService.GetCrowdfundOrderId(appId)}",
                 DisplayPerksRanking = settings.DisplayPerksRanking,
-                SortPerksByPopularity = settings.SortPerksByPopularity
+                SortPerksByPopularity = settings.SortPerksByPopularity,
+                Sounds                = string.Join(Environment.NewLine, settings.Sounds),
+                AnimationColors                = string.Join(Environment.NewLine, settings.AnimationColors)
             };
             return View(vm);
         }
@@ -91,12 +69,12 @@ namespace BTCPayServer.Controllers
         [Route("{appId}/settings/crowdfund")]
         public async Task<IActionResult> UpdateCrowdfund(string appId, UpdateCrowdfundViewModel vm)
         {
-            if (!string.IsNullOrEmpty( vm.TargetCurrency) && _AppsHelper.GetCurrencyData(vm.TargetCurrency, false) == null)
+            if (!string.IsNullOrEmpty( vm.TargetCurrency) && _currencies.GetCurrencyData(vm.TargetCurrency, false) == null)
                 ModelState.AddModelError(nameof(vm.TargetCurrency), "Invalid currency");
           
             try
             {
-                _AppsHelper.Parse(vm.PerksTemplate, vm.TargetCurrency).ToString();
+                _AppService.Parse(vm.PerksTemplate, vm.TargetCurrency).ToString();
             }
             catch
             {
@@ -117,6 +95,24 @@ namespace BTCPayServer.Controllers
             {
                 ModelState.AddModelError(nameof(vm.DisplayPerksRanking), "You must sort by popularity in order to display ranking.");
             }
+
+            var parsedSounds = vm.Sounds.Split(
+                new[] {"\r\n", "\r", "\n"},
+                StringSplitOptions.None
+            ).Select(s => s.Trim()).ToArray();
+            if (vm.SoundsEnabled && !parsedSounds.Any())
+            {
+                ModelState.AddModelError(nameof(vm.Sounds), "You must have at least one sound if you enable sounds");
+            }
+            
+            var parsedAnimationColors = vm.AnimationColors.Split(
+                new[] { "\r\n", "\r", "\n" },
+                StringSplitOptions.None
+            ).Select(s => s.Trim()).ToArray();
+            if (vm.AnimationsEnabled && !parsedAnimationColors.Any())
+            {
+                ModelState.AddModelError(nameof(vm.AnimationColors), "You must have at least one animation color if you enable animations");
+            }
             
             if (!ModelState.IsValid)
             {
@@ -135,13 +131,14 @@ namespace BTCPayServer.Controllers
                 EnforceTargetAmount = vm.EnforceTargetAmount,
                 StartDate = vm.StartDate,
                 TargetCurrency = vm.TargetCurrency,
-                Description = _AppsHelper.Sanitize( vm.Description),
+                Description = _htmlSanitizer.Sanitize( vm.Description),
                 EndDate = vm.EndDate,
                 TargetAmount = vm.TargetAmount,
                 CustomCSSLink = vm.CustomCSSLink,
                 MainImageUrl = vm.MainImageUrl,
                 EmbeddedCSS = vm.EmbeddedCSS,
                 NotificationUrl = vm.NotificationUrl,
+                NotificationEmail = vm.NotificationEmail,
                 Tagline = vm.Tagline,
                 PerksTemplate = vm.PerksTemplate,
                 DisqusEnabled = vm.DisqusEnabled,
@@ -150,15 +147,17 @@ namespace BTCPayServer.Controllers
                 AnimationsEnabled = vm.AnimationsEnabled,
                 ResetEveryAmount = vm.ResetEveryAmount,
                 ResetEvery = Enum.Parse<CrowdfundResetEvery>(vm.ResetEvery),
-                UseInvoiceAmount = vm.UseInvoiceAmount,
-                UseAllStoreInvoices = vm.UseAllStoreInvoices,
                 DisplayPerksRanking = vm.DisplayPerksRanking,
-                SortPerksByPopularity = vm.SortPerksByPopularity
+                SortPerksByPopularity = vm.SortPerksByPopularity,
+                Sounds = parsedSounds,
+                AnimationColors = parsedAnimationColors
             };
-            
+
+            app.TagAllInvoices = vm.UseAllStoreInvoices;
             app.SetSettings(newSettings);
             await UpdateAppSettings(app);
-            _EventAggregator.Publish(new CrowdfundAppUpdated()
+
+            _EventAggregator.Publish(new AppUpdated()
             {
                 AppId = appId,
                 StoreId = app.StoreDataId,

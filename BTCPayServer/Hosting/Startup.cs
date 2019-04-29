@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using System;
-using System.Collections.Generic;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,9 +13,9 @@ using BTCPayServer.Authentication;
 using Microsoft.EntityFrameworkCore;
 using BTCPayServer.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
-using BTCPayServer.Services;
 using BTCPayServer.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.HttpOverrides;
 using BTCPayServer.Data;
 using Microsoft.Extensions.Logging;
 using BTCPayServer.Logging;
@@ -34,9 +33,13 @@ using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Mvc.Cors.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using System.Net;
-using BTCPayServer.Hubs;
-using Meziantou.AspNetCore.BundleTagHelpers;
+using BTCPayServer.PaymentRequest;
 using BTCPayServer.Security;
+using BTCPayServer.Services.Apps;
+using BTCPayServer.Storage;
+using BTCPayServer.Storage.Services.Providers.FileSystemStorage;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.FileProviders;
 
 namespace BTCPayServer.Hosting
 {
@@ -65,6 +68,8 @@ namespace BTCPayServer.Hosting
                 .AddDefaultTokenProviders();
             services.AddSignalR();
             services.AddBTCPayServer();
+            services.AddProviderStorage();
+            services.AddSession();
             services.AddMvc(o =>
             {
                 o.Filters.Add(new XFrameOptionsAttribute("DENY"));
@@ -79,7 +84,7 @@ namespace BTCPayServer.Hosting
                 //    StyleSrc = "'self' 'unsafe-inline'",
                 //    ScriptSrc = "'self' 'unsafe-inline'"
                 //});
-            });
+            }).AddControllersAsServices();
             services.TryAddScoped<ContentSecurityPolicies>();
             services.Configure<IdentityOptions>(options =>
             {
@@ -158,13 +163,24 @@ namespace BTCPayServer.Hosting
                 app.UseDeveloperExceptionPage();
             }
 
+            var forwardingOptions = new ForwardedHeadersOptions()
+            {
+                ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+            };
+            forwardingOptions.KnownNetworks.Clear();
+            forwardingOptions.KnownProxies.Clear();
+            forwardingOptions.ForwardedHeaders = ForwardedHeaders.All;
+            app.UseForwardedHeaders(forwardingOptions);
             app.UseCors();
             app.UsePayServer();
             app.UseStaticFiles();
+            app.UseProviderStorage(options);
             app.UseAuthentication();
+            app.UseSession();
             app.UseSignalR(route =>
             {
-                route.MapHub<CrowdfundHub>("/apps/crowdfund/hub");
+                AppHub.Register(route);
+                PaymentRequestHub.Register(route);
             });
             app.UseWebSockets();
             app.UseStatusCodePages();

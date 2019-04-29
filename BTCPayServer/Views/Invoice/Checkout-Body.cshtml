@@ -45,11 +45,13 @@
         <div class="single-item-order__right">
             @if (Model.AvailableCryptos.Count > 1)
             {
-                <div class="payment__currencies cursorPointer" onclick="openPaymentMethodDialog()">
-                    <img v-bind:src="srvModel.cryptoImage" />
-                    <span class="clickable_underline">{{srvModel.paymentMethodName}} ({{srvModel.cryptoCode}})</span>
-                    <span v-show="srvModel.isLightning">&#9889;</span>
-                    <span class="clickable_indicator fa fa-angle-right"></span>
+                <div class="paywithRowRight cursorPointer" onclick="openPaymentMethodDialog()">
+                    <span class="payment__currencies ">
+                        <img v-bind:src="srvModel.cryptoImage" />
+                        <span>{{srvModel.paymentMethodName}} ({{srvModel.cryptoCodeSrv}})</span>
+                        <span v-show="srvModel.isLightning">&#9889;</span>
+                        <span class="clickable_indicator fa fa-angle-right"></span>
+                    </span>
                 </div>
                 <div id="vexPopupDialog">
                     <ul class="vexmenu">
@@ -69,12 +71,11 @@
             }
             else
             {
-                <div class="payment__currencies">
+                <div class="payment__currencies_noborder">
                     <img v-bind:src="srvModel.cryptoImage" />
-                    <span>{{srvModel.paymentMethodName}} ({{srvModel.cryptoCode}})</span>
+                    <span>{{srvModel.paymentMethodName}} ({{srvModel.cryptoCodeSrv}})</span>
                     <span v-show="srvModel.isLightning">&#9889;</span>
                 </div>
-
             }
             <div class="payment__spinner">
                 <partial name="Checkout-Spinner" />
@@ -100,7 +101,7 @@
             </div>
 
             <div class="single-item-order__right__ex-rate" v-if="srvModel.orderAmountFiat">
-                1 {{ srvModel.cryptoCode }} = {{ srvModel.rate }}
+                1 {{ srvModel.cryptoCodeSrv }} = {{ srvModel.rate }}
             </div>
         </div>
 
@@ -191,7 +192,7 @@
         </form>
     </div>
     <div class="bp-view payment scan" id="scan">
-        <div class="wrapBtnGroup" v-bind:class="{ invisible: lndModel === null }">
+        <div class="wrapBtnGroup" v-bind:class="{ invisible: lndModel === null || !scanDisplayQr }">
             <div class="btnGroupLnd">
                 <button onclick="lndToggleBolt11()" v-bind:class="{ active: lndModel != null && lndModel.toggle === 0 }"
                         v-bind:title="$t('BOLT 11 Invoice')">
@@ -204,11 +205,18 @@
             </div>
         </div>
         <div class="payment__scan">
-            <img v-bind:src="srvModel.cryptoImage" class="qr_currency_icon" />
-            <qrcode v-bind:val="scanDisplayQr" v-bind:size="256" bg-color="#f5f5f7" fg-color="#000">
+            <img v-bind:src="srvModel.cryptoImage" class="qr_currency_icon"
+                 v-if="scanDisplayQr" />
+            <qrcode v-bind:value="scanDisplayQr" :options="{ width: 256, margin: 0, color: {dark:'#000', light:'#f5f5f7'} }" tag="svg"
+                    v-if="scanDisplayQr">
             </qrcode>
+
+
+            <div class="payment__spinner qr_currency_icon" style="padding-right: 20px;">
+                <partial name="Checkout-Spinner" />
+            </div>
         </div>
-        <div class="payment__details__instruction__open-wallet">
+        <div class="payment__details__instruction__open-wallet" v-if="scanDisplayQr">
             <a class="payment__details__instruction__open-wallet__btn action-button" v-bind:href="srvModel.invoiceBitcoinUrl">
                 <span>{{$t("Open in wallet")}}</span>
             </a>
@@ -295,7 +303,7 @@
                                     :mode="srvModel.coinSwitchMode"
                                     :merchant-id="srvModel.coinSwitchMerchantId"
                                     :to-currency="srvModel.paymentMethodId"
-                                    :to-currency-due="srvModel.btcDue"
+                                    :to-currency-due="coinswitchAmountDue"
                                     :autoload="selectedThirdPartyProcessor === 'coinswitch'"
                                     :to-currency-address="srvModel.btcAddress">
                             <div>

@@ -1,13 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
-using System.Threading.Tasks;
+using BTCPayServer.ModelBinders;
+using Microsoft.AspNetCore.Mvc;
 
 namespace BTCPayServer.Models.StoreViewModels
 {
     public class PayButtonViewModel
     {
+        [ModelBinder(BinderType = typeof(InvariantDecimalModelBinder))]
         public decimal Price { get; set; }
         public string InvoiceId { get; set; }
         [Required]
@@ -15,6 +15,13 @@ namespace BTCPayServer.Models.StoreViewModels
         public string CheckoutDesc { get; set; }
         public string OrderId { get; set; }
         public int ButtonSize { get; set; }
+        public int ButtonType { get; set; }
+
+        // Slider properties (ButtonType = 2)
+        public decimal Min { get; set; }
+        public decimal Max { get; set; }
+        public decimal Step { get; set; }
+
         [Url]
         public string ServerIpn { get; set; }
         [Url]

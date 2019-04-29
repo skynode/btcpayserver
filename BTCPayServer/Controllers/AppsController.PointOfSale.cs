@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Services.Apps;
+using BTCPayServer.Services.Mails;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -55,12 +56,16 @@ namespace BTCPayServer.Controllers
                     "  custom: true";
                 EnableShoppingCart = false;
                 ShowCustomAmount = true;
+                ShowDiscount = true;
+                EnableTips = true;
             }
             public string Title { get; set; }
             public string Currency { get; set; }
             public string Template { get; set; }
             public bool EnableShoppingCart { get; set; }
             public bool ShowCustomAmount { get; set; }
+            public bool ShowDiscount { get; set; }
+            public bool EnableTips { get; set; }
 
             public const string BUTTON_TEXT_DEF = "Buy for {0}";
             public string ButtonText { get; set; } = BUTTON_TEXT_DEF;
@@ -73,6 +78,9 @@ namespace BTCPayServer.Controllers
 
 
             public string CustomCSSLink { get; set; }
+            public string NotificationEmail { get; set; }
+            public string NotificationUrl { get; set; }
+            public bool? RedirectAutomatically { get; set; }
         }
 
         [HttpGet]
@@ -83,19 +91,26 @@ namespace BTCPayServer.Controllers
             if (app == null)
                 return NotFound();
             var settings = app.GetSettings<PointOfSaleSettings>();
+          
             var vm = new UpdatePointOfSaleViewModel()
             {
+                NotificationEmailWarning = !await IsEmailConfigured(app.StoreDataId),
                 Id = appId,
                 Title = settings.Title,
                 EnableShoppingCart = settings.EnableShoppingCart,
                 ShowCustomAmount = settings.ShowCustomAmount,
+                ShowDiscount = settings.ShowDiscount,
+                EnableTips = settings.EnableTips,
                 Currency = settings.Currency,
                 Template = settings.Template,
                 ButtonText = settings.ButtonText ?? PointOfSaleSettings.BUTTON_TEXT_DEF,
                 CustomButtonText = settings.CustomButtonText ?? PointOfSaleSettings.CUSTOM_BUTTON_TEXT_DEF,
                 CustomTipText = settings.CustomTipText ?? PointOfSaleSettings.CUSTOM_TIP_TEXT_DEF,
                 CustomTipPercentages = settings.CustomTipPercentages != null ? string.Join(",", settings.CustomTipPercentages) : string.Join(",", PointOfSaleSettings.CUSTOM_TIP_PERCENTAGES_DEF),
-                CustomCSSLink = settings.CustomCSSLink
+                CustomCSSLink = settings.CustomCSSLink,
+                NotificationEmail = settings.NotificationEmail,
+                NotificationUrl = settings.NotificationUrl,
+                RedirectAutomatically = settings.RedirectAutomatically.HasValue? settings.RedirectAutomatically.Value? "true": "false" : "" 
             };
             if (HttpContext?.Request != null)
             {
@@ -116,7 +131,7 @@ namespace BTCPayServer.Controllers
                 }
                 try
                 {
-                    var items = _AppsHelper.Parse(settings.Template, settings.Currency);
+                    var items = _AppService.Parse(settings.Template, settings.Currency);
                     var builder = new StringBuilder();
                     builder.AppendLine($"<form method=\"POST\" action=\"{encoder.Encode(appUrl)}\">");
                     builder.AppendLine($"  <input type=\"hidden\" name=\"email\" value=\"customer@example.com\" />");
@@ -138,11 +153,11 @@ namespace BTCPayServer.Controllers
         [Route("{appId}/settings/pos")]
         public async Task<IActionResult> UpdatePointOfSale(string appId, UpdatePointOfSaleViewModel vm)
         {
-            if (_AppsHelper.GetCurrencyData(vm.Currency, false) == null)
+            if (_currencies.GetCurrencyData(vm.Currency, false) == null)
                 ModelState.AddModelError(nameof(vm.Currency), "Invalid currency");
             try
             {
-                _AppsHelper.Parse(vm.Template, vm.Currency);
+                _AppService.Parse(vm.Template, vm.Currency);
             }
             catch
             {
@@ -160,13 +175,19 @@ namespace BTCPayServer.Controllers
                 Title = vm.Title,
                 EnableShoppingCart = vm.EnableShoppingCart,
                 ShowCustomAmount = vm.ShowCustomAmount,
+                ShowDiscount = vm.ShowDiscount,
+                EnableTips = vm.EnableTips,
                 Currency = vm.Currency.ToUpperInvariant(),
                 Template = vm.Template,
                 ButtonText = vm.ButtonText,
                 CustomButtonText = vm.CustomButtonText,
                 CustomTipText = vm.CustomTipText,
                 CustomTipPercentages = ListSplit(vm.CustomTipPercentages),
-                CustomCSSLink = vm.CustomCSSLink
+                CustomCSSLink = vm.CustomCSSLink,
+                NotificationUrl = vm.NotificationUrl,
+                NotificationEmail = vm.NotificationEmail,
+                RedirectAutomatically = string.IsNullOrEmpty(vm.RedirectAutomatically)? (bool?) null: bool.Parse(vm.RedirectAutomatically)
+                
             });
             await UpdateAppSettings(app);
             StatusMessage = "App updated";
@@ -180,6 +201,7 @@ namespace BTCPayServer.Controllers
                 ctx.Apps.Add(app);
                 ctx.Entry<AppData>(app).State = EntityState.Modified;
                 ctx.Entry<AppData>(app).Property(a => a.Settings).IsModified = true;
+                ctx.Entry<AppData>(app).Property(a => a.TagAllInvoices).IsModified = true;
                 await ctx.SaveChangesAsync();
             }
         }

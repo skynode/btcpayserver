@@ -1,14 +1,16 @@
 ﻿using System;
+using System.Net.Sockets;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Lightning;
 using BTCPayServer.Services.Invoices;
+using BTCPayServer.Services;
+using NBitcoin;
 
 namespace BTCPayServer.Payments.Lightning
 {
@@ -17,18 +19,25 @@ namespace BTCPayServer.Payments.Lightning
         public static int LIGHTNING_TIMEOUT = 5000;
 
         NBXplorerDashboard _Dashboard;
+        private readonly LightningClientFactoryService _lightningClientFactory;
+        private readonly SocketFactory _socketFactory;
+
         public LightningLikePaymentHandler(
-            NBXplorerDashboard dashboard)
+            NBXplorerDashboard dashboard,
+            LightningClientFactoryService lightningClientFactory,
+            SocketFactory socketFactory)
         {
             _Dashboard = dashboard;
+            _lightningClientFactory = lightningClientFactory;
+            _socketFactory = socketFactory;
         }
         public override async Task<IPaymentMethodDetails> CreatePaymentMethodDetails(LightningSupportedPaymentMethod supportedPaymentMethod, PaymentMethod paymentMethod, StoreData store, BTCPayNetwork network, object preparePaymentObject)
         {
             var storeBlob = store.GetStoreBlob();
-            var test = GetNodeInfo(supportedPaymentMethod, network);
+            var test = GetNodeInfo(paymentMethod.PreferOnion, supportedPaymentMethod, network);
             var invoice = paymentMethod.ParentEntity;
             var due = Extensions.RoundUp(invoice.ProductInformation.Price / paymentMethod.Rate, 8);
-            var client = supportedPaymentMethod.CreateClient(network);
+            var client = _lightningClientFactory.Create(supportedPaymentMethod.GetLightningUrl(), network);
             var expiry = invoice.ExpirationTime - DateTimeOffset.UtcNow;
             if (expiry < TimeSpan.Zero)
                 expiry = TimeSpan.FromSeconds(1);
@@ -63,14 +72,14 @@ namespace BTCPayServer.Payments.Lightning
             };
         }
 
-        public async Task<NodeInfo> GetNodeInfo(LightningSupportedPaymentMethod supportedPaymentMethod, BTCPayNetwork network)
+        public async Task<NodeInfo> GetNodeInfo(bool preferOnion, LightningSupportedPaymentMethod supportedPaymentMethod, BTCPayNetwork network)
         {
             if (!_Dashboard.IsFullySynched(network.CryptoCode, out var summary))
                 throw new PaymentMethodUnavailableException($"Full node not available");
 
             using (var cts = new CancellationTokenSource(LIGHTNING_TIMEOUT))
             {
-                var client = supportedPaymentMethod.CreateClient(network);
+                var client = _lightningClientFactory.Create(supportedPaymentMethod.GetLightningUrl(), network);
                 LightningNodeInformation info = null;
                 try
                 {
@@ -84,8 +93,8 @@ namespace BTCPayServer.Payments.Lightning
                 {
                     throw new PaymentMethodUnavailableException($"Error while connecting to the API ({ex.Message})");
                 }
-
-                if (info.NodeInfo == null)
+                var nodeInfo = info.NodeInfoList.FirstOrDefault(i => i.IsTor == preferOnion) ?? info.NodeInfoList.FirstOrDefault();
+                if (nodeInfo == null)
                 {
                     throw new PaymentMethodUnavailableException($"No lightning node public address has been configured");
                 }
@@ -96,7 +105,7 @@ namespace BTCPayServer.Payments.Lightning
                     throw new PaymentMethodUnavailableException($"The lightning node is not synched ({blocksGap} blocks left)");
                 }
 
-                return info.NodeInfo;
+                return nodeInfo;
             }
         }
 
@@ -104,22 +113,11 @@ namespace BTCPayServer.Payments.Lightning
         {
             try
             {
-                IPAddress address = null;
-                try
-                {
-                    address = IPAddress.Parse(nodeInfo.Host);
-                }
-                catch
-                {
-                    address = (await Dns.GetHostAddressesAsync(nodeInfo.Host)).FirstOrDefault();
-                }
+                if (!Utils.TryParseEndpoint(nodeInfo.Host, nodeInfo.Port, out var endpoint))
+                    throw new PaymentMethodUnavailableException($"Could not parse the endpoint {nodeInfo.Host}");
 
-                if (address == null)
-                    throw new PaymentMethodUnavailableException($"DNS did not resolve {nodeInfo.Host}");
-
-                using (var tcp = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp))
+                using (var tcp = await _socketFactory.ConnectAsync(endpoint, cancellation))
                 {
-                    await tcp.ConnectAsync(new IPEndPoint(address, nodeInfo.Port)).WithCancellation(cancellation);
                 }
             }
             catch (Exception ex)

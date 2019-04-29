@@ -1,11 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Linq;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using BTCPayServer.Models;
-using Microsoft.EntityFrameworkCore.Infrastructure.Internal;
+using BTCPayServer.Services.PaymentRequests;
+using BTCPayServer.Storage.Models;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace BTCPayServer.Data
@@ -54,6 +52,11 @@ namespace BTCPayServer.Data
         {
             get; set;
         }
+        
+        public DbSet<PaymentRequestData> PaymentRequests
+        {
+            get; set;
+        }
 
         public DbSet<StoreData> Stores
         {
@@ -87,6 +90,11 @@ namespace BTCPayServer.Data
         }
 
         public DbSet<APIKeyData> ApiKeys
+        {
+            get; set;
+        } 
+        
+        public DbSet<StoredFile> Files
         {
             get; set;
         }
@@ -204,6 +212,15 @@ namespace BTCPayServer.Data
                     o.UniqueId
 #pragma warning restore CS0618
                 });
+            
+            
+            builder.Entity<PaymentRequestData>()
+                .HasOne(o => o.StoreData)
+                .WithMany(i => i.PaymentRequests)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<PaymentRequestData>()
+                .HasIndex(o => o.Status);
         }
     }
 }

@@ -21,6 +21,7 @@ using BTCPayServer.Payments.Changelly;
 using BTCPayServer.Payments.CoinSwitch;
 using BTCPayServer.Security;
 using BTCPayServer.Rating;
+using BTCPayServer.Services.PaymentRequests;
 using BTCPayServer.Services.Mails;
 
 namespace BTCPayServer.Data
@@ -38,6 +39,11 @@ namespace BTCPayServer.Data
             get; set;
         }
         public List<AppData> Apps
+        {
+            get; set;
+        }
+        
+        public List<PaymentRequestData> PaymentRequests
         {
             get; set;
         }
@@ -301,6 +307,25 @@ namespace BTCPayServer.Data
 
         public bool RequiresRefundEmail { get; set; }
 
+        CurrencyPair[] _DefaultCurrencyPairs;
+        [JsonProperty("defaultCurrencyPairs", ItemConverterType = typeof(CurrencyPairJsonConverter))]
+        public CurrencyPair[] DefaultCurrencyPairs
+        {
+            get
+            {
+                return _DefaultCurrencyPairs ?? Array.Empty<CurrencyPair>();
+            }
+            set
+            {
+                _DefaultCurrencyPairs = value;
+            }
+        }
+
+        public string GetDefaultCurrencyPairString()
+        {
+            return string.Join(',', DefaultCurrencyPairs.Select(c => c.ToString()));
+        }
+
         public string DefaultLang { get; set; }
         [DefaultValue(60)]
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
@@ -325,9 +350,10 @@ namespace BTCPayServer.Data
         public string PreferredExchange { get; set; }
 
         [JsonConverter(typeof(CurrencyValueJsonConverter))]
-        public CurrencyValue LightningMaxValue { get; set; }
-        [JsonConverter(typeof(CurrencyValueJsonConverter))]
         public CurrencyValue OnChainMinValue { get; set; }
+        [JsonConverter(typeof(CurrencyValueJsonConverter))]
+        public CurrencyValue LightningMaxValue { get; set; }
+        public bool LightningAmountInSatoshi { get; set; }
 
         [JsonConverter(typeof(UriJsonConverter))]
         public Uri CustomLogo { get; set; }
@@ -423,6 +449,7 @@ namespace BTCPayServer.Data
         public Dictionary<string, string> WalletKeyPathRoots { get; set; } = new Dictionary<string, string>();
 
         public EmailSettings EmailSettings { get; set; }
+        public bool RedirectAutomatically { get; set; }
 
         public IPaymentFilter GetExcludedPaymentMethods()
         {

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp2.1</TargetFramework>
-		<Version>1.0.3.54</Version>
+		<Version>1.0.3.94</Version>
     <NoWarn>NU1701,CA1816,CA1308,CA1810,CA2208</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
@@ -30,25 +30,27 @@
     <None Remove="Currencies.txt" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="bundleconfig.json" />
     <EmbeddedResource Include="Currencies.txt" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.1.0.5" />
-    <PackageReference Include="BuildBundlerMinifier" Version="2.7.385" />
+    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.1.0.16" />
+    <PackageReference Include="BuildBundlerMinifier" Version="2.9.406" />
+    <PackageReference Include="BundlerMinifier.Core" Version="2.9.406" />
+    <PackageReference Include="BundlerMinifier.TagHelpers" Version="2.9.406" />
     <PackageReference Include="DigitalRuby.ExchangeSharp" Version="0.5.3" />
-    <PackageReference Include="HtmlSanitizer" Version="4.0.199" />
+    <PackageReference Include="HtmlSanitizer" Version="4.0.207" />
     <PackageReference Include="LedgerWallet" Version="2.0.0.3" />
-    <PackageReference Include="Meziantou.AspNetCore.BundleTagHelpers" Version="2.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="2.1.4" />
     <PackageReference Include="Microsoft.Extensions.Logging.Filter" Version="1.1.2" />
     <PackageReference Include="Microsoft.NetCore.Analyzers" Version="2.6.2">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="NBitcoin" Version="4.1.1.78" />
-    <PackageReference Include="NBitpayClient" Version="1.0.0.31" />	  
-    <PackageReference Include="DBreeze" Version="1.92.0" />
-    <PackageReference Include="NBXplorer.Client" Version="2.0.0.3" />
+    <PackageReference Include="NBitcoin" Version="4.1.1.98" />
+    <PackageReference Include="NBitpayClient" Version="1.0.0.34" />	  
+    <PackageReference Include="DBriize" Version="1.0.0.4" />
+    <PackageReference Include="NBXplorer.Client" Version="2.0.0.6" />
     <PackageReference Include="NicolasDorier.CommandLine" Version="1.0.0.2" />
     <PackageReference Include="NicolasDorier.CommandLine.Configuration" Version="1.0.0.3" />
     <PackageReference Include="NicolasDorier.RateLimits" Version="1.0.0.3" />
@@ -59,7 +61,6 @@
     <PackageReference Include="Serilog.AspNetCore" Version="2.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="4.0.0" />
     <PackageReference Include="SSH.NET" Version="2016.1.0" />
-    <PackageReference Include="System.Xml.XmlSerializer" Version="4.3.0" />
     <PackageReference Include="Text.Analyzers" Version="2.6.2">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
@@ -67,7 +68,12 @@
   </ItemGroup>
 
 	<ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.App" Version="2.1.6" />
+    <PackageReference Include="Microsoft.AspNetCore.App" Version="2.1.9" />
+    <PackageReference Include="TwentyTwenty.Storage" Version="2.10.1" />
+    <PackageReference Include="TwentyTwenty.Storage.Amazon" Version="2.10.1" />
+    <PackageReference Include="TwentyTwenty.Storage.Azure" Version="2.10.1" />
+    <PackageReference Include="TwentyTwenty.Storage.Google" Version="2.10.1" />
+    <PackageReference Include="TwentyTwenty.Storage.Local" Version="2.10.1" />
 		<PackageReference Include="YamlDotNet" Version="5.2.1" />
 	</ItemGroup>
 
@@ -139,7 +145,7 @@
     <Content Update="Views\Server\LightningChargeServices.cshtml">
       <Pack>$(IncludeRazorContentInPack)</Pack>
     </Content>
-    <Content Update="Views\Server\SparkServices.cshtml">
+    <Content Update="Views\Server\LightningWalletServices.cshtml">
       <Pack>$(IncludeRazorContentInPack)</Pack>
     </Content>
     <Content Update="Views\Server\SSHService.cshtml">

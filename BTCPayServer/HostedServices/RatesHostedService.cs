@@ -1,4 +1,5 @@
 ﻿using System;
+using NBitcoin;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Linq;
@@ -47,7 +48,7 @@ namespace BTCPayServer.HostedServices
                 {
                     await Task.WhenAll(_RateProviderFactory.Providers
                                     .Select(p => (Fetcher: p.Value as BackgroundFetcherRateProvider, ExchangeName: p.Key)).Where(p => p.Fetcher != null)
-                                    .Select(p => p.Fetcher.UpdateIfNecessary().ContinueWith(t =>
+                                    .Select(p => p.Fetcher.UpdateIfNecessary(timeout.Token).ContinueWith(t =>
                                     {
                                         if (t.Result.Exception != null)
                                         {
@@ -65,11 +66,10 @@ namespace BTCPayServer.HostedServices
 
         async Task RefreshCoinAverageSupportedExchanges()
         {
-            var tickers = await new CoinAverageRateProvider() { Authenticator = _coinAverageSettings }.GetExchangeTickersAsync();
             var exchanges = new CoinAverageExchanges();
-            foreach (var item in tickers
+            foreach (var item in (await new CoinAverageRateProvider() { Authenticator = _coinAverageSettings }.GetExchangeTickersAsync())
                 .Exchanges
-                .Select(c => new CoinAverageExchange(c.Name, c.DisplayName)))
+                .Select(c => new CoinAverageExchange(c.Name, c.DisplayName, $"https://apiv2.bitcoinaverage.com/exchanges/{c.Name}")))
             {
                 exchanges.Add(item);
             }

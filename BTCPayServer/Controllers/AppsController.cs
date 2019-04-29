@@ -7,6 +7,9 @@ using BTCPayServer.Models;
 using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Security;
 using BTCPayServer.Services.Apps;
+using BTCPayServer.Services.Mails;
+using BTCPayServer.Services.Rates;
+using Ganss.XSS;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -26,20 +29,29 @@ namespace BTCPayServer.Controllers
             ApplicationDbContextFactory contextFactory,
             EventAggregator eventAggregator,
             BTCPayNetworkProvider networkProvider,
-            AppsHelper appsHelper)
+            CurrencyNameTable currencies,
+            HtmlSanitizer htmlSanitizer,
+            EmailSenderFactory emailSenderFactory,
+            AppService AppService)
         {
             _UserManager = userManager;
             _ContextFactory = contextFactory;
             _EventAggregator = eventAggregator;
             _NetworkProvider = networkProvider;
-            _AppsHelper = appsHelper;
+            _currencies = currencies;
+            _htmlSanitizer = htmlSanitizer;
+            _emailSenderFactory = emailSenderFactory;
+            _AppService = AppService;
         }
 
         private UserManager<ApplicationUser> _UserManager;
         private ApplicationDbContextFactory _ContextFactory;
         private readonly EventAggregator _EventAggregator;
         private BTCPayNetworkProvider _NetworkProvider;
-        private AppsHelper _AppsHelper;
+        private readonly CurrencyNameTable _currencies;
+        private readonly HtmlSanitizer _htmlSanitizer;
+        private readonly EmailSenderFactory _emailSenderFactory;
+        private AppService _AppService;
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -47,7 +59,7 @@ namespace BTCPayServer.Controllers
 
         public async Task<IActionResult> ListApps()
         {
-            var apps = await _AppsHelper.GetAllApps(GetUserId());
+            var apps = await _AppService.GetAllApps(GetUserId());
             return View(new ListAppsViewModel()
             {
                 Apps = apps
@@ -61,7 +73,7 @@ namespace BTCPayServer.Controllers
             var appData = await GetOwnedApp(appId);
             if (appData == null)
                 return NotFound();
-            if (await _AppsHelper.DeleteApp(appData))
+            if (await _AppService.DeleteApp(appData))
                 StatusMessage = "App removed successfully";
             return RedirectToAction(nameof(ListApps));
         }
@@ -70,13 +82,13 @@ namespace BTCPayServer.Controllers
         [Route("create")]
         public async Task<IActionResult> CreateApp()
         {
-            var stores = await _AppsHelper.GetOwnedStores(GetUserId());
+            var stores = await _AppService.GetOwnedStores(GetUserId());
             if (stores.Length == 0)
             {
                 StatusMessage = new StatusMessageModel()
                 {
                     Html =
-                        $"Error: You must have created at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
+                        $"Error: You need to create at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
                     Severity = StatusMessageModel.StatusSeverity.Error
                 }.ToString();
                 return RedirectToAction(nameof(ListApps));
@@ -90,13 +102,13 @@ namespace BTCPayServer.Controllers
         [Route("create")]
         public async Task<IActionResult> CreateApp(CreateAppViewModel vm)
         {
-            var stores = await _AppsHelper.GetOwnedStores(GetUserId());
+            var stores = await _AppService.GetOwnedStores(GetUserId());
             if (stores.Length == 0)
             {
                 StatusMessage = new StatusMessageModel()
                 {
                     Html =
-                        $"Error: You must have created at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
+                        $"Error: You need to create at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
                     Severity = StatusMessageModel.StatusSeverity.Error
                 }.ToString();
                 return RedirectToAction(nameof(ListApps));
@@ -160,13 +172,18 @@ namespace BTCPayServer.Controllers
 
         private Task<AppData> GetOwnedApp(string appId, AppType? type = null)
         {
-            return _AppsHelper.GetAppDataIfOwner(GetUserId(), appId, type);
+            return _AppService.GetAppDataIfOwner(GetUserId(), appId, type);
         }
 
         
         private string GetUserId()
         {
             return _UserManager.GetUserId(User);
+        }
+
+        private async Task<bool> IsEmailConfigured(string storeId)
+        {
+            return (await (_emailSenderFactory.GetEmailSender(storeId) as EmailSender)?.GetEmailSettings())?.IsComplete() is true;
         }
     }
 }

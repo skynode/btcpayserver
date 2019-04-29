@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Logging;
 using BTCPayServer.Rating;
+using System.Threading;
 
 namespace BTCPayServer.Services.Rates
 {
@@ -16,6 +17,7 @@ namespace BTCPayServer.Services.Rates
         {
             public ExchangeRates Latest;
             public DateTimeOffset NextRefresh;
+            public TimeSpan Backoff = TimeSpan.FromSeconds(5.0); 
             public DateTimeOffset Expiration;
             public Exception Exception;
             public string ExchangeName;
@@ -90,14 +92,15 @@ namespace BTCPayServer.Services.Rates
         }
 
         public bool DoNotAutoFetchIfExpired { get; set; }
+        readonly static TimeSpan MaxBackoff = TimeSpan.FromMinutes(5.0);
 
-        public async Task<LatestFetch> UpdateIfNecessary()
+        public async Task<LatestFetch> UpdateIfNecessary(CancellationToken cancellationToken)
         {
             if (NextUpdate <= DateTimeOffset.UtcNow)
             {
                 try
                 {
-                    await Fetch();
+                    await Fetch(cancellationToken);
                 }
                 catch { } // Exception is inside _Latest
                 return _Latest;
@@ -106,7 +109,7 @@ namespace BTCPayServer.Services.Rates
         }
 
         LatestFetch _Latest;
-        public async Task<ExchangeRates> GetRatesAsync()
+        public async Task<ExchangeRates> GetRatesAsync(CancellationToken cancellationToken)
         {
             var latest = _Latest;
             if (!DoNotAutoFetchIfExpired && latest != null && latest.Expiration <= DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1.0))
@@ -114,7 +117,7 @@ namespace BTCPayServer.Services.Rates
                 Logs.PayServer.LogWarning($"GetRatesAsync was called on {GetExchangeName()} when the rate is outdated. It should never happen, let BTCPayServer developers know about this.");
                 latest = null;
             }
-            return (latest ?? (await Fetch())).GetResult();
+            return (latest ?? (await Fetch(cancellationToken))).GetResult();
         }
 
         private string GetExchangeName()
@@ -124,14 +127,14 @@ namespace BTCPayServer.Services.Rates
             return "???";
         }
 
-        private async Task<LatestFetch> Fetch()
+        private async Task<LatestFetch> Fetch(CancellationToken cancellationToken)
         {
             var previous = _Latest;
             var fetch = new LatestFetch();
             fetch.ExchangeName = GetExchangeName();
             try
             {
-                var rates = await _Inner.GetRatesAsync();
+                var rates = await _Inner.GetRatesAsync(cancellationToken);
                 fetch.Latest = rates;
                 fetch.Expiration = DateTimeOffset.UtcNow + ValidatyTime;
                 fetch.NextRefresh = DateTimeOffset.UtcNow + RefreshRate;
@@ -142,12 +145,15 @@ namespace BTCPayServer.Services.Rates
                 {
                     fetch.Latest = previous.Latest;
                     fetch.Expiration = previous.Expiration;
+                    fetch.Backoff = previous.Backoff * 2;
+                    if (fetch.Backoff > MaxBackoff)
+                        fetch.Backoff = MaxBackoff;
                 }
                 else
                 {
                     fetch.Expiration = DateTimeOffset.UtcNow;
                 }
-                fetch.NextRefresh = DateTimeOffset.UtcNow;
+                fetch.NextRefresh = DateTimeOffset.UtcNow + fetch.Backoff;
                 fetch.Exception = ex;
             }
             _Latest = fetch;

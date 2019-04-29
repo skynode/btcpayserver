@@ -5,7 +5,7 @@
 @inject BTCPayServer.HostedServices.NBXplorerDashboard dashboard
 @inject BTCPayServer.HostedServices.CssThemeManager themeManager
 
-@addTagHelper *, Meziantou.AspNetCore.BundleTagHelpers
+@addTagHelper *, BundlerMinifier.TagHelpers
 
 <!DOCTYPE html>
 <html lang="en">
@@ -15,6 +15,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="description" content="">
     <meta name="author" content="">
+    @if (themeManager.DiscourageSearchEngines)
+    {
+        <META NAME="robots" CONTENT="noindex">
+    }
 
     <title>BTCPay Server</title>
 
@@ -42,7 +46,7 @@
     }
 
     <!-- Navigation -->
-    <nav class='navbar navbar-expand-lg navbar-light fixed-top @additionalStyle' id="mainNav">
+    <nav class='navbar navbar-expand-lg navbar-dark fixed-top @additionalStyle' id="mainNav">
         <div class="container">
             <a class="navbar-brand js-scroll-trigger" href="~/">
                 <img src="~/img/logo.png" height="45">
@@ -51,6 +55,14 @@
                     <span class="badge badge-warning" style="font-size:10px;">@env.NetworkType.ToString()</span>
                 }
             </a>
+            @if (env.OnionUrl != null)
+            {
+                <span>
+                    <a href="@env.OnionUrl" target="_blank">
+                        <img src="~/img/icons/onion.svg" width="26" height="32" />
+                    </a>
+                </span>
+            }
             <button class="navbar-toggler navbar-toggler-right" type="button" data-toggle="collapse" data-target="#navbarResponsive" aria-controls="navbarResponsive" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -58,7 +70,7 @@
                 <ul class="navbar-nav ml-auto">
                     @if (SignInManager.IsSignedIn(User))
                     {
-                        @if (User.IsInRole(Roles.ServerAdmin))
+                        if (User.IsInRole(Roles.ServerAdmin))
                         {
                             <li class="nav-item"><a asp-area="" asp-controller="Server" asp-action="ListUsers" class="nav-link js-scroll-trigger">Server settings</a></li>
                         }
@@ -66,31 +78,36 @@
                         <li class="nav-item"><a asp-area="" asp-controller="Apps" asp-action="ListApps" class="nav-link js-scroll-trigger">Apps</a></li>
                         <li class="nav-item"><a asp-area="" asp-controller="Wallets" asp-action="ListWallets" class="nav-link js-scroll-trigger">Wallets</a></li>
                         <li class="nav-item"><a asp-area="" asp-controller="Invoice" asp-action="ListInvoices" class="nav-link js-scroll-trigger">Invoices</a></li>
+                        <li class="nav-item"><a asp-area="" asp-controller="PaymentRequest" asp-action="GetPaymentRequests" class="nav-link js-scroll-trigger">Payment Requests</a></li>
                         <li class="nav-item">
-                            <a asp-area="" asp-controller="Manage" asp-action="Index" title="Manage" class="nav-link js-scroll-trigger">My settings</a>
+                            <a asp-area="" asp-controller="Manage" asp-action="Index" title="My settings" class="nav-link js-scroll-trigger"><i class="fa fa-user"></i></a>
                         </li>
                         <li class="nav-item">
-                            <a asp-area="" asp-controller="Account" asp- asp-action="Logout" title="Manage" class="nav-link js-scroll-trigger">Log out</a>
+                            <a asp-area="" asp-controller="Account" asp- asp-action="Logout" title="Logout" class="nav-link js-scroll-trigger"><i class="fa fa-sign-out"></i></a>
                         </li>}
-                    else
+                    else if (env.IsSecure)
                     {
-                        @if (themeManager.ShowRegister)
+                        if (themeManager.ShowRegister)
                         {
                             <li class="nav-item"><a asp-area="" asp-controller="Account" asp-action="Register" class="nav-link js-scroll-trigger">Register</a></li>
                         }
-                        <li class="nav-item"><a asp-area="" asp-controller="Account" asp-action="Login" class="nav-link js-scroll-trigger">Log in</a></li>}
+                        <li class="nav-item"><a asp-area="" asp-controller="Account" asp-action="Login" class="nav-link js-scroll-trigger">Log in</a></li>
+                    }
 
                 </ul>
             </div>
             <div id="badUrl" class="alert alert-danger alert-dismissible" style="display:none; position:absolute; top:75px;" role="alert">
                 <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-                <span>BTCPay is expecting you to access this website from <b>@(env.ExpectedProtocol)://@(env.ExpectedHost)/</b>. If you want to change this expectation:</span>
-                <ul>
-                    <li>Either starts BTCPay with <b>--externalurl @(env.ExpectedProtocol)://@(env.ExpectedHost)/</b></li>
-                    <li>Or, if using docker-compose deployment, setting environment variable <b>BTCPAY_PROTOCOL=@(env.ExpectedProtocol)</b> and <b>BTCPAY_HOST=@(env.ExpectedDomain)</b></li>
-                </ul>
-
+                <span>BTCPay is expecting you to access this website from <b>@(env.ExpectedProtocol)://@(env.ExpectedHost)/</b>. If you use a reverse proxy, please set the <b>X-Forwarded-Proto</b> header to <b id="browserScheme">@(env.ExpectedProtocol)</b> (<a href="https://docs.btcpayserver.org/faq-and-common-issues/faq-deployment#btcpay-is-expecting-you-to-access-this-website-from" target="_blank">More information</a>)</span>
             </div>
+            @if (!env.IsSecure)
+            {
+                <div class="alert alert-danger alert-dismissible" style="position:absolute; top:75px;" role="alert">
+                    <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                    <span>You access BTCPay Server over an unsecured network. If you are using docker deployment with NGINX and HTTPS is not available, you probably did not configured your DNS settings right. <br /> 
+                          We disabled the register and login link so you don't leak your credentials.</span>
+                </div>
+            }
         </div>
     </nav>
 
@@ -116,6 +133,7 @@
         var expectedProtocol = @Html.Raw(Json.Serialize(env.ExpectedProtocol));
         if (window.location.host != expectedDomain || window.location.protocol != expectedProtocol + ":") {
             document.getElementById("badUrl").style.display = "block";
+            document.getElementById("browserScheme").innerText = window.location.protocol.substr(0, window.location.protocol.length -1);
         }
     </script>
 </body>

@@ -181,7 +181,7 @@ namespace BTCPayServer.Controllers
                 try
                 {
                     cts.CancelAfter(TimeSpan.FromSeconds(5));
-                    var result = await RateFetcher.FetchRate(currencyPair, rateRules).WithCancellation(cts.Token);
+                    var result = await RateFetcher.FetchRate(currencyPair, rateRules, cts.Token).WithCancellation(cts.Token);
                     if (result.BidAsk != null)
                     {
                         model.Rate = result.BidAsk.Center;
@@ -291,9 +291,6 @@ namespace BTCPayServer.Controllers
 
             var vm = new RescanWalletModel();
             vm.IsFullySync = _dashboard.IsFullySynched(walletId.CryptoCode, out var unused);
-            // We need to ensure it is segwit, 
-            // because hardware wallet support need the parent transactions to sign, which NBXplorer don't have. (Nor does a pruned node)
-            vm.IsSegwit = paymentMethod.DerivationStrategyBase.IsSegwit();
             vm.IsServerAdmin = User.Claims.Any(c => c.Type == Policies.CanModifyServerSettings.Key && c.Value == "true");
             vm.IsSupportedByCurrency = _dashboard.Get(walletId.CryptoCode)?.Status?.BitcoinStatus?.Capabilities?.CanScanTxoutSet == true;
             var explorer = ExplorerClientProvider.GetExplorerClient(walletId.CryptoCode);

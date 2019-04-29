@@ -113,6 +113,9 @@ namespace BTCPayServer.Services.Invoices
     }
     public class InvoiceEntity
     {
+        public const int InternalTagSupport_Version = 1;
+        public const int Lastest_Version = 1;
+        public int Version { get; set; }
         public string Id
         {
             get; set;
@@ -164,6 +167,16 @@ namespace BTCPayServer.Services.Invoices
             set;
         }
 
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public HashSet<string> InternalTags { get; set; } = new HashSet<string>();
+
+        public string[] GetInternalTags(string suffix)
+        {
+            return InternalTags == null ? Array.Empty<string>() : InternalTags
+                                                  .Where(t => t.StartsWith(suffix, StringComparison.InvariantCulture))
+                                                  .Select(t => t.Substring(suffix.Length)).ToArray();
+        }
+        
         [Obsolete("Use GetDerivationStrategies instead")]
         public string DerivationStrategy
         {
@@ -285,6 +298,12 @@ namespace BTCPayServer.Services.Invoices
             get;
             set;
         }
+        
+        public bool RedirectAutomatically
+        {
+            get;
+            set;
+        }
 
         [Obsolete("Use GetPaymentMethod(network).GetTxFee() instead")]
         public Money TxFee
@@ -342,7 +361,6 @@ namespace BTCPayServer.Services.Invoices
         {
             return DateTimeOffset.UtcNow > ExpirationTime;
         }
-
 
         public InvoiceResponse EntityToDTO(BTCPayNetworkProvider networkProvider)
         {
@@ -404,6 +422,22 @@ namespace BTCPayServer.Services.Invoices
                 var scheme = info.Network.UriScheme;
                 cryptoInfo.Url = ServerUrl.WithTrailingSlash() + $"i/{paymentId}/{Id}";
 
+                cryptoInfo.Payments = GetPayments(info.Network).Select(entity =>
+                {
+                    var data = entity.GetCryptoPaymentData();
+                    return new InvoicePaymentInfo()
+                    {
+                        Id = data.GetPaymentId(),
+                        Fee = entity.NetworkFee,
+                        Value = data.GetValue(),
+                        Completed = data.PaymentCompleted(entity, info.Network),
+                        Confirmed = data.PaymentConfirmed(entity, SpeedPolicy, info.Network),
+                        Destination = data.GetDestination(info.Network),
+                        PaymentType = data.GetPaymentType().ToString(),
+                        ReceivedDate = entity.ReceivedTime.DateTime
+                    };
+                }).ToList();
+                
                 if (paymentId.PaymentType == PaymentTypes.BTCLike)
                 {
                     var minerInfo = new MinerFeeInfo();
@@ -704,6 +738,12 @@ namespace BTCPayServer.Services.Invoices
         [Obsolete("Use GetId().PaymentType instead")]
         public string PaymentType { get; set; }
 
+        /// <summary>
+        /// We only use this to pass a singleton asking to the payment handler to prefer payments through TOR, we don't really
+        /// need to save this information
+        /// </summary>
+        [JsonIgnore]
+        public bool PreferOnion { get; set; }
 
         public PaymentMethodId GetId()
         {

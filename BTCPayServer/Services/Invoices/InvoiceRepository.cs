@@ -1,4 +1,4 @@
-﻿using DBreeze;
+﻿using DBriize;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -27,8 +27,8 @@ namespace BTCPayServer.Services.Invoices
     {
 
 
-        private readonly DBreezeEngine _Engine;
-        public DBreezeEngine Engine
+        private readonly DBriizeEngine _Engine;
+        public DBriizeEngine Engine
         {
             get
             {
@@ -44,7 +44,7 @@ namespace BTCPayServer.Services.Invoices
 retry:
             try
             {
-                _Engine = new DBreezeEngine(dbreezePath);
+                _Engine = new DBriizeEngine(dbreezePath);
             }
             catch when (retryCount++ < 5) { goto retry; }
             _IndexerThread = new CustomThreadPool(1, "Invoice Indexer");
@@ -71,14 +71,14 @@ retry:
             using (var db = _ContextFactory.CreateContext())
             {
                 var key = scriptPubKey.Hash.ToString() + "#" + cryptoCode;
-                var result = await db.AddressInvoices
+                var result = (await db.AddressInvoices
 #pragma warning disable CS0618
                                     .Where(a => a.Address == key)
 #pragma warning restore CS0618
                                     .Select(a => a.InvoiceData)
                                     .Include(a => a.Payments)
                                     .Include(a => a.RefundAddresses)
-                                    .FirstOrDefaultAsync();
+                                    .ToListAsync()).FirstOrDefault();
                 if (result == null)
                     return null;
                 return ToEntity(result);
@@ -90,6 +90,16 @@ retry:
             using (var ctx = _ContextFactory.CreateContext())
             {
                 return await ctx.PendingInvoices.Select(p => p.Id).ToArrayAsync();
+            }
+        }
+
+        public async Task<AppData[]> GetAppsTaggingStore(string storeId)
+        {
+            if (storeId == null)
+                throw new ArgumentNullException(nameof(storeId));
+            using (var ctx = _ContextFactory.CreateContext())
+            {
+                return await ctx.Apps.Where(a => a.StoreDataId == storeId && a.TagAllInvoices).ToArrayAsync();
             }
         }
 
@@ -108,7 +118,7 @@ retry:
             }
         }
 
-        public async Task<InvoiceEntity> CreateInvoiceAsync(string storeId, InvoiceEntity invoice, InvoiceLogs creationLogs, BTCPayNetworkProvider networkProvider)
+        public async Task<InvoiceEntity> CreateInvoiceAsync(string storeId, InvoiceEntity invoice, BTCPayNetworkProvider networkProvider)
         {
             List<string> textSearch = new List<string>();
             invoice = Clone(invoice, null);
@@ -155,17 +165,6 @@ retry:
                     textSearch.Add(paymentMethod.Calculate().TotalDue.ToString());
                 }
                 context.PendingInvoices.Add(new PendingInvoiceData() { Id = invoice.Id });
-
-                foreach (var log in creationLogs.ToList())
-                {
-                    context.InvoiceEvents.Add(new InvoiceEventData()
-                    {
-                        InvoiceDataId = invoice.Id,
-                        Message = log.Log,
-                        Timestamp = log.Timestamp,
-                        UniqueId = Encoders.Hex.EncodeData(RandomUtils.GetBytes(10))
-                    });
-                }
                 await context.SaveChangesAsync().ConfigureAwait(false);
             }
 
@@ -179,6 +178,24 @@ retry:
 
             AddToTextSearch(invoice.Id, textSearch.ToArray());
             return invoice;
+        }
+
+        public async Task AddInvoiceLogs(string invoiceId, InvoiceLogs logs)
+        {
+            using (var context = _ContextFactory.CreateContext())
+            {
+                foreach (var log in logs.ToList())
+                {
+                    context.InvoiceEvents.Add(new InvoiceEventData()
+                    {
+                        InvoiceDataId = invoiceId,
+                        Message = log.Log,
+                        Timestamp = log.Timestamp,
+                        UniqueId = Encoders.Hex.EncodeData(RandomUtils.GetBytes(10))
+                    });
+                }
+                await context.SaveChangesAsync().ConfigureAwait(false);
+            }
         }
 
         private static string GetDestination(PaymentMethod paymentMethod, Network network)
@@ -196,7 +213,7 @@ retry:
         {
             using (var context = _ContextFactory.CreateContext())
             {
-                var invoice = await context.Invoices.FirstOrDefaultAsync(i => i.Id == invoiceId);
+                var invoice = (await context.Invoices.Where(i => i.Id == invoiceId).ToListAsync()).FirstOrDefault();
                 if (invoice == null)
                     return false;
 
@@ -366,7 +383,7 @@ retry:
                     query = query.Include(o => o.HistoricalAddressInvoices).Include(o => o.AddressInvoices);
                 query = query.Where(i => i.Id == id);
 
-                var invoice = await query.FirstOrDefaultAsync().ConfigureAwait(false);
+                var invoice = (await query.ToListAsync()).FirstOrDefault();
                 if (invoice == null)
                     return null;
 
@@ -446,7 +463,7 @@ retry:
                 {
                     // Hacky way to return an empty query object. The nice way is much too elaborate:
                     // https://stackoverflow.com/questions/33305495/how-to-return-empty-iqueryable-in-an-async-repository-method
-                    return query.Where(x => false); 
+                    return query.Where(x => false);
                 }
                 query = query.Where(i => ids.Contains(i.Id));
             }
@@ -477,7 +494,7 @@ retry:
             if (queryObject.Unusual != null)
             {
                 var unused = queryObject.Unusual.Value;
-                query = query.Where(i => unused == (i.Status == "invalid" || i.ExceptionStatus != null));
+                query = query.Where(i => unused == (i.Status == "invalid" || !string.IsNullOrEmpty(i.ExceptionStatus)));
             }
 
             if (queryObject.ExceptionStatus != null && queryObject.ExceptionStatus.Length > 0)

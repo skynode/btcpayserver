@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Authentication;
 using BTCPayServer.Configuration;
@@ -188,24 +189,39 @@ namespace BTCPayServer.Controllers
 
         [HttpGet]
         [Route("{storeId}/rates")]
-        public IActionResult Rates()
+        public IActionResult Rates(string storeId)
         {
             var storeBlob = StoreData.GetStoreBlob();
             var vm = new RatesViewModel();
             vm.SetExchangeRates(GetSupportedExchanges(), storeBlob.PreferredExchange ?? CoinAverageRateProvider.CoinAverageName);
             vm.Spread = (double)(storeBlob.Spread * 100m);
+            vm.StoreId = storeId;
             vm.Script = storeBlob.GetRateRules(_NetworkProvider).ToString();
             vm.DefaultScript = storeBlob.GetDefaultRateRules(_NetworkProvider).ToString();
             vm.AvailableExchanges = GetSupportedExchanges();
+            vm.DefaultCurrencyPairs = storeBlob.GetDefaultCurrencyPairString();
             vm.ShowScripting = storeBlob.RateScripting;
             return View(vm);
         }
 
         [HttpPost]
         [Route("{storeId}/rates")]
-        public async Task<IActionResult> Rates(RatesViewModel model, string command = null)
+        public async Task<IActionResult> Rates(RatesViewModel model, string command = null, string storeId = null, CancellationToken cancellationToken = default)
         {
             model.SetExchangeRates(GetSupportedExchanges(), model.PreferredExchange);
+            model.StoreId = storeId ?? model.StoreId;
+            CurrencyPair[] currencyPairs = null;
+            try
+            {
+                currencyPairs = model.DefaultCurrencyPairs?
+                     .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                     .Select(p => CurrencyPair.Parse(p))
+                     .ToArray();
+            }
+            catch
+            {
+                ModelState.AddModelError(nameof(model.DefaultCurrencyPairs), "Invalid currency pairs (should be for example: BTC_USD,BTC_CAD,BTC_JPY)");
+            }
             if (!ModelState.IsValid)
             {
                 return View(model);
@@ -219,7 +235,7 @@ namespace BTCPayServer.Controllers
 
             blob.PreferredExchange = model.PreferredExchange;
             blob.Spread = (decimal)model.Spread / 100.0m;
-
+            blob.DefaultCurrencyPairs = currencyPairs;
             if (!model.ShowScripting)
             {
                 if (!GetSupportedExchanges().Select(c => c.Name).Contains(blob.PreferredExchange, StringComparer.OrdinalIgnoreCase))
@@ -267,7 +283,7 @@ namespace BTCPayServer.Controllers
                     pairs.Add(currencyPair);
                 }
 
-                var fetchs = _RateFactory.FetchRates(pairs.ToHashSet(), rules);
+                var fetchs = _RateFactory.FetchRates(pairs.ToHashSet(), rules, cancellationToken);
                 var testResults = new List<RatesViewModel.TestResultViewModel>();
                 foreach (var fetch in fetchs)
                 {
@@ -332,13 +348,15 @@ namespace BTCPayServer.Controllers
             var storeBlob = StoreData.GetStoreBlob();
             var vm = new CheckoutExperienceViewModel();
             SetCryptoCurrencies(vm, StoreData);
-            vm.SetLanguages(_LangService, storeBlob.DefaultLang);
-            vm.LightningMaxValue = storeBlob.LightningMaxValue?.ToString() ?? "";
-            vm.OnChainMinValue = storeBlob.OnChainMinValue?.ToString() ?? "";
-            vm.RequiresRefundEmail = storeBlob.RequiresRefundEmail;
             vm.CustomCSS = storeBlob.CustomCSS?.AbsoluteUri;
             vm.CustomLogo = storeBlob.CustomLogo?.AbsoluteUri;
             vm.HtmlTitle = storeBlob.HtmlTitle;
+            vm.SetLanguages(_LangService, storeBlob.DefaultLang);
+            vm.RequiresRefundEmail = storeBlob.RequiresRefundEmail;
+            vm.OnChainMinValue = storeBlob.OnChainMinValue?.ToString() ?? "";
+            vm.LightningMaxValue = storeBlob.LightningMaxValue?.ToString() ?? "";
+            vm.LightningAmountInSatoshi = storeBlob.LightningAmountInSatoshi;
+            vm.RedirectAutomatically = storeBlob.RedirectAutomatically;
             return View(vm);
         }
         void SetCryptoCurrencies(CheckoutExperienceViewModel vm, Data.StoreData storeData)
@@ -395,13 +413,15 @@ namespace BTCPayServer.Controllers
             {
                 return View(model);
             }
-            blob.DefaultLang = model.DefaultLang;
-            blob.RequiresRefundEmail = model.RequiresRefundEmail;
-            blob.LightningMaxValue = lightningMaxValue;
-            blob.OnChainMinValue = onchainMinValue;
             blob.CustomLogo = string.IsNullOrWhiteSpace(model.CustomLogo) ? null : new Uri(model.CustomLogo, UriKind.Absolute);
             blob.CustomCSS = string.IsNullOrWhiteSpace(model.CustomCSS) ? null : new Uri(model.CustomCSS, UriKind.Absolute);
             blob.HtmlTitle = string.IsNullOrWhiteSpace(model.HtmlTitle) ? null : model.HtmlTitle;
+            blob.DefaultLang = model.DefaultLang;
+            blob.RequiresRefundEmail = model.RequiresRefundEmail;
+            blob.OnChainMinValue = onchainMinValue;
+            blob.LightningMaxValue = lightningMaxValue;
+            blob.LightningAmountInSatoshi = model.LightningAmountInSatoshi;
+            blob.RedirectAutomatically = model.RedirectAutomatically;
             if (StoreData.SetStoreBlob(blob))
             {
                 needUpdate = true;
@@ -489,7 +509,7 @@ namespace BTCPayServer.Controllers
                 Action = nameof(UpdateChangellySettings),
                 Provider = "Changelly"
             });
-            
+
             var coinSwitchEnabled = storeBlob.CoinSwitchSettings != null && storeBlob.CoinSwitchSettings.Enabled;
             vm.ThirdPartyPaymentMethods.Add(new StoreViewModel.ThirdPartyPaymentMethod()
             {
@@ -593,7 +613,6 @@ namespace BTCPayServer.Controllers
             model.StoreNotConfigured = StoreNotConfigured;
             model.Tokens = tokens.Select(t => new TokenViewModel()
             {
-                Facade = t.Facade,
                 Label = t.Label,
                 SIN = t.SIN,
                 Id = t.Value
@@ -678,7 +697,6 @@ namespace BTCPayServer.Controllers
 
             var tokenRequest = new TokenRequest()
             {
-                Facade = model.Facade,
                 Label = model.Label,
                 Id = model.PublicKey == null ? null : NBitpayClient.Extensions.BitIdExtensions.GetBitIDSIN(new PubKey(model.PublicKey))
             };
@@ -690,7 +708,6 @@ namespace BTCPayServer.Controllers
                 await _TokenRepository.UpdatePairingCode(new PairingCodeEntity()
                 {
                     Id = tokenRequest.PairingCode,
-                    Facade = model.Facade,
                     Label = model.Label,
                 });
                 await _TokenRepository.PairWithStoreAsync(tokenRequest.PairingCode, storeId);
@@ -730,7 +747,6 @@ namespace BTCPayServer.Controllers
                 }
             }
             var model = new CreateTokenViewModel();
-            model.Facade = "merchant";
             ViewBag.HidePublicKey = storeId == null;
             ViewBag.ShowStores = storeId == null;
             ViewBag.ShowMenu = storeId != null;
@@ -782,7 +798,6 @@ namespace BTCPayServer.Controllers
                 return View(new PairingModel()
                 {
                     Id = pairing.Id,
-                    Facade = pairing.Facade,
                     Label = pairing.Label,
                     SIN = pairing.SIN ?? "Server-Initiated Pairing",
                     SelectedStore = selectedStore ?? stores.FirstOrDefault()?.Id,
@@ -873,7 +888,11 @@ namespace BTCPayServer.Controllers
                 ButtonSize = 2,
                 UrlRoot = appUrl,
                 PayButtonImageUrl = appUrl + "img/paybutton/pay.png",
-                StoreId = store.Id
+                StoreId = store.Id,
+                ButtonType = 0,
+                Min = 1,
+                Max = 20,
+                Step = 1
             };
             return View(model);
         }

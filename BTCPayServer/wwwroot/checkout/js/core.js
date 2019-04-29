@@ -46,6 +46,12 @@ function onDataCallback(jsonData) {
 
         resetTabsSlider();
         $("#paid").addClass("active");
+        if (!jsonData.isModal && jsonData.redirectAutomatically && jsonData.merchantRefLink) {
+            $(".payment__spinner").show();
+            setTimeout(function () {
+                window.location = jsonData.merchantRefLink;
+            }, 2000);
+        }
     }
 
     if (newStatus === "expired" || newStatus === "invalid") { //TODO: different state if the invoice is invalid (failed to confirm after timeout)
@@ -90,8 +96,26 @@ function onDataCallback(jsonData) {
         checkoutCtrl.lndModel = null;
     }
 
+    // displaying satoshis for lightning payments
+    jsonData.cryptoCodeSrv = jsonData.cryptoCode;
+    if (jsonData.isLightning && checkoutCtrl.lightningAmountInSatoshi && jsonData.cryptoCode === "BTC") {
+        var SATOSHIME = 100000000;
+        jsonData.cryptoCode = "Sats";
+        jsonData.btcDue = numberFormatted(jsonData.btcDue * SATOSHIME);
+        jsonData.btcPaid = numberFormatted(jsonData.btcPaid * SATOSHIME);
+        jsonData.networkFee = numberFormatted(jsonData.networkFee * SATOSHIME);
+        jsonData.orderAmount = numberFormatted(jsonData.orderAmount * SATOSHIME);
+    }
+
     // updating ui
     checkoutCtrl.srvModel = jsonData;
+}
+
+function numberFormatted(x) {
+    var rounded = Math.round(x);
+    var parts = rounded.toString().split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    return parts.join(".");
 }
 
 function fetchStatus() {
@@ -234,6 +258,7 @@ $(document).ready(function () {
     // Should connect using webhook ?
     // If notification received
 
+    var socket = null;
     var supportsWebSockets = 'WebSocket' in window && window.WebSocket.CLOSING === 2;
     if (supportsWebSockets) {
         var loc = window.location, ws_uri;
@@ -245,7 +270,7 @@ $(document).ready(function () {
         ws_uri += "//" + loc.host;
         ws_uri += loc.pathname + "/status/ws?invoiceId=" + srvModel.invoiceId;
         try {
-            var socket = new WebSocket(ws_uri);
+            socket = new WebSocket(ws_uri);
             socket.onmessage = function (e) {
                 fetchStatus();
             };
@@ -259,7 +284,9 @@ $(document).ready(function () {
     }
 
     var watcher = setInterval(function () {
-        fetchStatus();
+        if (socket === null || socket.readyState !== 1) {
+            fetchStatus();
+        }
     }, 2000);
 
     $(".menu__item").click(function () {

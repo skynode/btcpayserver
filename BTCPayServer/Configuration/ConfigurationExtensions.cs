@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Primitives;
+using NBitcoin;
 
 namespace BTCPayServer.Configuration
 {

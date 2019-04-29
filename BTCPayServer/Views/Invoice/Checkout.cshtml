@@ -1,4 +1,4 @@
-﻿@addTagHelper *, Meziantou.AspNetCore.BundleTagHelpers
+﻿@addTagHelper *, BundlerMinifier.TagHelpers
 @inject BTCPayServer.Services.LanguageService langService
 @using Newtonsoft.Json
 @using Newtonsoft.Json.Linq
@@ -51,9 +51,9 @@
 
             <p>Alternatively, click below to continue to our HTML-only invoice.</p>
 
-            <form action="/invoice-noscript" method="GET">
-                <button style="text-decoration: underline; color: blue">Continue to javascript-disabled invoice &gt;</button>
-            </form>
+            <a href="/invoice-noscript?id=@Model.InvoiceId" style="text-decoration: underline; color: blue">
+                Continue to javascript-disabled invoice &gt;
+            </a>
         </center>
     </noscript>
 
@@ -82,15 +82,15 @@
                         @* Not working because of nsSeparator: false, keySeparator: false,
                             {{$t("nested.lang")}} >>
                         *@
-                    
-                        <select asp-for="DefaultLang"  
+
+                        <select asp-for="DefaultLang"
                                 class="cmblang reverse invisible"
-                            onchange="changeLanguage($(this).val())"
-                            asp-items="@langService.GetLanguages().Select((language) => new SelectListItem(language.DisplayName,language.Code, false))"></select>
-                    
+                                onchange="changeLanguage($(this).val())"
+                                asp-items="@langService.GetLanguages().Select((language) => new SelectListItem(language.DisplayName,language.Code, false))"></select>
+
                         <script>
                             var languageSelectorPrettyDropdown;
-                            $(function() {
+                            $(function () {
                                 // REVIEW: don't use initDropdown method but rather directly initialize select whenever you are using it
                                 $("#DefaultLang").val(startingLanguage);
                                 languageSelectorPrettyDropdown = initDropdown("#DefaultLang");
@@ -113,11 +113,8 @@
             </div>
         </div>
     </invoice>
-<script type="text/javascript">
-    var availableLanguages = @Html.Raw(Json.Serialize(
-                                     langService
-                                         .GetLanguages()
-                                         .Select((language) => language.Code)));;
+    <script type="text/javascript">
+    var availableLanguages = @Html.Raw(Json.Serialize(langService.GetLanguages().Select((language) => language.Code)));;
     var storeDefaultLang = "@Model.DefaultLang";
     var fallbackLanguage = "en";
     startingLanguage = computeStartingLanguage();
@@ -126,14 +123,14 @@
         .use(window.i18nextXHRBackend)
         .init({
             backend: {
-                loadPath: '/locales/{{lng}}.json'
+                loadPath: '@(Model.RootPath)locales/{{lng}}.json'
             },
             lng: startingLanguage,
             fallbackLng: fallbackLanguage,
             nsSeparator: false,
             keySeparator: false
         });
-    
+
     function computeStartingLanguage() {
         if (urlParams.lang && isLanguageAvailable(urlParams.lang)) {
             return urlParams.lang;
@@ -150,11 +147,11 @@
             i18next.changeLanguage(lang);
         }
     }
-        
+
     function isLanguageAvailable(languageCode) {
         return availableLanguages.indexOf(languageCode) >= 0;
     }
-    
+
     const i18n = new VueI18next(i18next);
 
     // TODO: Move all logic from core.js to Vue controller
@@ -169,7 +166,7 @@
         i18n: i18n,
         el: '#checkoutCtrl',
         components: {
-            qrcode: VueQr,
+            qrcode: VueQrcode,
             changelly: ChangellyComponent,
             coinswitch: CoinSwitchComponent
         },
@@ -179,9 +176,17 @@
             scanDisplayQr: "",
             expiringSoon: false,
             isModal: srvModel.isModal,
+            lightningAmountInSatoshi: srvModel.lightningAmountInSatoshi,
             selectedThirdPartyProcessor: ""
+        },
+        computed: {
+            coinswitchAmountDue: function() {
+                return this.srvModel.coinSwitchAmountMarkupPercentage
+                    ? (1 + (this.srvModel.coinSwitchAmountMarkupPercentage / 100))
+                    : this.srvModel.btcDue;
+            }
         }
     });
-</script>
+    </script>
 </body>
 </html>
