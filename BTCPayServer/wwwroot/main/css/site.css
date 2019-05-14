@@ -19,3 +19,21 @@
 .only-for-js, .input-group-clear{
     display: none;
 }
+
+.display-when-ledger-connected {
+    display: none;
+}
+
+.wraptextAuto {
+    max-width: 300px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    display: block;
+    white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+    .wraptextAuto {
+        max-width: 600px;
+    }
+}
