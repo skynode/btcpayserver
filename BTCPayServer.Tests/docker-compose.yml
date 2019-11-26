@@ -16,8 +16,6 @@ services:
       TESTS_LTCNBXPLORERURL: http://nbxplorer:32838/
       TESTS_DB: "Postgres"
       TESTS_POSTGRES: User ID=postgres;Host=postgres;Port=5432;Database=btcpayserver
-      TESTS_MYSQL: User ID=root;Host=mysql;Port=3306;Database=btcpayserver
-      TESTS_PORT: 80
       TESTS_HOSTNAME: tests
       TESTS_RUN_EXTERNAL_INTEGRATION: ${TESTS_RUN_EXTERNAL_INTEGRATION:-false}
       TESTS_AzureBlobStorageConnectionString: ${TESTS_AzureBlobStorageConnectionString:-none}
@@ -26,6 +24,9 @@ services:
       TEST_MERCHANTCHARGE: "type=charge;server=http://lightning-charged:9112/;api-token=foiewnccewuify"
       TEST_MERCHANTLND: "https://lnd:lnd@merchant_lnd:8080/"
       TESTS_INCONTAINER: "true"
+      TESTS_SSHCONNECTION: "root@sshd:22"
+      TESTS_SSHPASSWORD: ""
+      TESTS_SSHKEYFILE: ""
     expose:
       - "80"
     links:
@@ -33,26 +34,34 @@ services:
     extra_hosts: 
       - "tests:127.0.0.1"
     volumes:
+      - "sshd_datadir:/root/.ssh"
       - "customer_lightningd_datadir:/etc/customer_lightningd_datadir"
       - "merchant_lightningd_datadir:/etc/merchant_lightningd_datadir"
 
   # The dev container is not actually used, it is just handy to run `docker-compose up dev` to start all services
   dev: 
-    image: btcpayserver/bitcoin:0.18.0
-    environment:
-      BITCOIN_NETWORK: regtest
-      BITCOIN_EXTRA_ARGS: |
-        deprecatedrpc=signrawtransaction
-        connect=bitcoind:39388
+    image: alpine:3.7
+    command: [ "/bin/sh", "-c", "trap : TERM INT; while :; do echo Ready to code and debug like a rockstar!!!; sleep 2073600; done & wait" ]
     links:
       - nbxplorer
       - postgres
-      - mysql
       - customer_lightningd
       - merchant_lightningd
       - lightning-charged
       - customer_lnd
       - merchant_lnd
+      - sshd
+
+  sshd:
+    build:
+        context: .
+        dockerfile: sshd.Dockerfile
+    ports:
+        - "21622:22"
+    expose:
+        - 22
+    volumes:
+        - "sshd_datadir:/root/.ssh"
 
   devlnd: 
     image: btcpayserver/bitcoin:0.18.0
@@ -64,14 +73,10 @@ services:
     links:
       - nbxplorer
       - postgres
-      - mysql
       - customer_lnd
       - merchant_lnd
-
-
-
   nbxplorer:
-    image: nicolasdorier/nbxplorer:2.0.0.41
+    image: nicolasdorier/nbxplorer:2.0.0.66
     restart: unless-stopped
     ports:
       - "32838:32838"
@@ -122,19 +127,20 @@ services:
       - "bitcoin_datadir:/data"
 
   customer_lightningd:
-    image: btcpayserver/lightning:v0.7.0-1-dev
+    image: btcpayserver/lightning:v0.7.3-dev
     stop_signal: SIGKILL
     restart: unless-stopped
     environment: 
       EXPOSE_TCP: "true"
+      LIGHTNINGD_CHAIN: "btc"
+      LIGHTNINGD_NETWORK: "regtest"
       LIGHTNINGD_OPT: |
         bitcoin-datadir=/etc/bitcoin
         bitcoin-rpcconnect=bitcoind
-        network=regtest
-        bind-addr=0.0.0.0
         announce-addr=customer_lightningd
         log-level=debug
-        dev-broadcast-interval=1000
+        funding-confirms=1
+        dev-fast-gossip
         dev-bitcoind-poll=1
     ports:
       - "30992:9835" # api port
@@ -148,7 +154,7 @@ services:
       - bitcoind
 
   lightning-charged:
-    image: shesek/lightning-charge:0.4.6-standalone
+    image: shesek/lightning-charge:0.4.11-standalone
     restart: unless-stopped
     environment:
       NETWORK: regtest
@@ -168,18 +174,20 @@ services:
       - merchant_lightningd
 
   merchant_lightningd:
-    image: btcpayserver/lightning:v0.7.0-1-dev
+    image: btcpayserver/lightning:v0.7.3-dev
     stop_signal: SIGKILL
     environment: 
       EXPOSE_TCP: "true"
+      LIGHTNINGD_CHAIN: "btc"
+      LIGHTNINGD_NETWORK: "regtest"
       LIGHTNINGD_OPT: |
         bitcoin-datadir=/etc/bitcoin
         bitcoin-rpcconnect=bitcoind
-        bind-addr=0.0.0.0
         announce-addr=merchant_lightningd
-        network=regtest
+        funding-confirms=1
         log-level=debug
-        dev-broadcast-interval=1000
+        dev-fast-gossip
+        dev-bitcoind-poll=1
     ports:
       - "30993:9835" # api port
     expose:
@@ -214,18 +222,9 @@ services:
       - "39372:5432"
     expose:
       - "5432"
-      
-  mysql:
-    image:  mysql:8.0.12
-    expose:
-      - "3306"
-    ports:
-      - "33036:3306"
-    environment:
-      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
 
   merchant_lnd:
-    image: btcpayserver/lnd:v0.6-beta
+    image: btcpayserver/lnd:v0.7.1-beta-withseed
     restart: unless-stopped
     environment:
       LND_CHAIN: "btc"
@@ -240,9 +239,9 @@ services:
         bitcoind.zmqpubrawblock=tcp://bitcoind:28332
         bitcoind.zmqpubrawtx=tcp://bitcoind:28333
         externalip=merchant_lnd:9735
+        bitcoin.defaultchanconfs=1
         no-macaroons=1
         debuglevel=debug
-        noseedbackup=1
         trickledelay=1000
     ports:
       - "53280:8080"
@@ -255,7 +254,7 @@ services:
       - bitcoind
 
   customer_lnd:
-    image: btcpayserver/lnd:v0.6-beta
+    image: btcpayserver/lnd:v0.7.1-beta-withseed
     restart: unless-stopped
     environment:
       LND_CHAIN: "btc"
@@ -270,9 +269,9 @@ services:
         bitcoind.zmqpubrawblock=tcp://bitcoind:28332
         bitcoind.zmqpubrawtx=tcp://bitcoind:28333
         externalip=customer_lnd:10009
+        bitcoin.defaultchanconfs=1
         no-macaroons=1
         debuglevel=debug
-        noseedbackup=1
         trickledelay=1000
     ports:
       - "53281:8080"
@@ -286,6 +285,7 @@ services:
       - bitcoind
 
 volumes:
+    sshd_datadir:
     bitcoin_datadir:
     customer_lightningd_datadir:
     merchant_lightningd_datadir:

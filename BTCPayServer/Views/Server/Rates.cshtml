@@ -4,8 +4,7 @@
 }
 
 
-<h4>@ViewData["Title"]</h4>
-<partial name="_StatusMessage" for="@TempData["TempDataProperty-StatusMessage"]" />
+<partial name="_StatusMessage" />
 
 
 <div class="row">
@@ -37,7 +36,7 @@
             @if(Model.RateLimits != null)
             {
                 <h5>Current Bitcoin Average Quotas:</h5>
-                <table class="table table-sm">
+                <table class="table table-sm removetopborder">
                     <tr>
                         <th>Quota period</th>
                         <td>@Model.RateLimits.TotalPeriod.TimeString()</td>

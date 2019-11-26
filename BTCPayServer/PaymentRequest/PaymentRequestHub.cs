@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using System.Threading;
@@ -11,8 +12,12 @@ using BTCPayServer.Payments;
 using BTCPayServer.Services.PaymentRequests;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using BTCPayServer.Services.Apps;
+using BTCPayServer.Data;
 using Microsoft.AspNetCore.Http;
+#if !NETCOREAPP21
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Builder;
+#endif
 
 namespace BTCPayServer.PaymentRequest
 {
@@ -84,7 +89,12 @@ namespace BTCPayServer.PaymentRequest
         {
             return request.GetRelativePathOrAbsolute("/payment-requests/hub");
         }
+
+#if NETCOREAPP21
         public static void Register(HubRouteBuilder route)
+#else
+        public static void Register(IEndpointRouteBuilder route)
+#endif
         {
             route.MapHub<PaymentRequestHub>("/payment-requests/hub");
         }
@@ -156,8 +166,7 @@ namespace BTCPayServer.PaymentRequest
                             {
                             data.GetValue(),
                             invoiceEvent.Payment.GetCryptoCode(),
-                            Enum.GetName(typeof(PaymentTypes),
-                                invoiceEvent.Payment.GetPaymentMethodId().PaymentType)
+                            invoiceEvent.Payment.GetPaymentMethodId().PaymentType.ToString()
                             });
                     }
 

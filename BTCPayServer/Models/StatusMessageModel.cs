@@ -10,34 +10,10 @@ namespace BTCPayServer.Models
         {
         }
 
-        public StatusMessageModel(string s)
-        {
-            if (string.IsNullOrEmpty(s))
-                return;
-            try
-            {
-                if (s.StartsWith("{", StringComparison.InvariantCultureIgnoreCase) &&
-                    s.EndsWith("}", StringComparison.InvariantCultureIgnoreCase))
-                {
-                    var model = JObject.Parse(s).ToObject<StatusMessageModel>();
-                    Html = model.Html;
-                    Message = model.Message;
-                    Severity = model.Severity;
-                }
-                else
-                {
-                    ParseNonJsonStatus(s);
-                }
-            }
-            catch (Exception)
-            {
-                ParseNonJsonStatus(s);
-            }
-        }
-
         public string Message { get; set; }
         public string Html { get; set; }
         public StatusSeverity Severity { get; set; }
+        public bool AllowDismiss { get; set; } = true;
 
         public string SeverityCSS
         {
@@ -51,15 +27,12 @@ namespace BTCPayServer.Models
                         return "danger";
                     case StatusSeverity.Success:
                         return "success";
+                    case StatusSeverity.Warning:
+                        return "warning";
                     default:
                         throw new ArgumentOutOfRangeException();
                 }
             }
-        }
-
-        public override string ToString()
-        {
-            return JObject.FromObject(this).ToString(Formatting.None);
         }
         
         private void ParseNonJsonStatus(string s)
@@ -74,7 +47,8 @@ namespace BTCPayServer.Models
         {
             Info,
             Error,
-            Success
+            Success,
+            Warning
         }
     }
 }

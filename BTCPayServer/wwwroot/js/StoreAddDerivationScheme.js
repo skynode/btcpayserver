@@ -1,4 +1,4 @@
-﻿$(function () {
+﻿function initLedger() {
     var ledgerDetected = false;
 
     var loc = window.location, new_uri;
@@ -18,7 +18,7 @@
     }
 
     function WriteAlert(type, message) {
-        
+
     }
     function showFeedback(id) {
         $("#ledger-loading").css("display", id === "ledger-loading" ? "block" : "none");
@@ -47,13 +47,14 @@
                     return;
 
                 showFeedback("ledger-info");
-
                 $("#DerivationScheme").val(result.derivationScheme);
                 $("#RootFingerprint").val(result.rootFingerprint);
                 $("#AccountKey").val(result.extPubKey);
                 $("#Source").val(result.source);
                 $("#DerivationSchemeFormat").val("BTCPay");
                 $("#KeyPath").val(keypath);
+                $(".modal").modal('hide');
+                $(".hw-fields").show();
             })
             .catch(function (reason) { Write('check', 'error', reason); });
         return false;
@@ -84,4 +85,61 @@
                     });
             }
         });
+}
+
+$(document).ready(function () {
+    var ledgerInit = false;
+    $(".check-for-ledger").on("click", function () {
+        if (!ledgerInit) {
+
+            initLedger();
+        }
+        ledgerInit = true;
+    });
+
+    function show(id, category) {
+        $("." + category).css("display", "none");
+        $("#" + id).css("display", "block");
+    }
+
+    var websocketPath = $("#WebsocketPath").text();
+    var loc = window.location, ws_uri;
+    if (loc.protocol === "https:") {
+        ws_uri = "wss:";
+    } else {
+        ws_uri = "ws:";
+    }
+    ws_uri += "//" + loc.host;
+    ws_uri += websocketPath;
+
+    function displayXPubs(xpubs) {
+        $("#vault-dropdown").css("display", "block");
+        $("#vault-dropdown .dropdown-item").click(function () {
+            var id = $(this).attr('id').replace("vault-", "");
+            var xpub = xpubs[id];
+            $("#DerivationScheme").val(xpub.strategy);
+            $("#RootFingerprint").val(xpubs.fingerprint);
+            $("#AccountKey").val(xpub.accountKey);
+            $("#Source").val("Vault");
+            $("#DerivationSchemeFormat").val("BTCPay");
+            $("#KeyPath").val(xpub.keyPath);
+            $(".modal").modal('hide');
+            $(".hw-fields").show();
+        });
+    }
+
+    var vaultInit = false;
+    $(".check-for-vault").on("click", async function () {
+        if (vaultInit)
+            return;
+        vaultInit = true;
+
+        var html = $("#VaultConnection").html();
+        $("#vaultPlaceholder").html(html);
+
+        var vaultUI = new vaultui.VaultBridgeUI(ws_uri);
+        if (await vaultUI.askForXPubs()) {
+            displayXPubs(vaultUI.xpubs);
+        }
+    });
 });

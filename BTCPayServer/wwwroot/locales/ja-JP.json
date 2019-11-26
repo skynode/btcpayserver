@@ -46,5 +46,7 @@
   "txCount_plural": "取引 {{count}} 個",
   "Pay with CoinSwitch": "CoinSwitchでのお支払い",
   "Pay with Changelly": "Changellyでのお支払い",
-  "Close": "閉じる"
+  "Close": "閉じる",
+  "NotPaid_ExtraTransaction": "請求金額の全額が支払われていません。未払い分の別のトランザクションをお送りください。",
+  "Recommended_Fee": "推奨手数料: {{feeRate}} sat/byte"
 }

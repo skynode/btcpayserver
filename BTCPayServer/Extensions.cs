@@ -1,5 +1,4 @@
-﻿using BTCPayServer.Authentication;
-using BTCPayServer.Configuration;
+﻿using BTCPayServer.Configuration;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -34,11 +33,44 @@ using BTCPayServer.Data;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using NBXplorer.DerivationStrategy;
 using System.Net;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer
 {
     public static class Extensions
     {
+#if !NETCOREAPP21
+        public static IQueryable<TEntity> Where<TEntity>(this Microsoft.EntityFrameworkCore.DbSet<TEntity> obj, System.Linq.Expressions.Expression<Func<TEntity, bool>> predicate) where TEntity : class
+        {
+            return System.Linq.Queryable.Where(obj, predicate);
+        }
+#endif
+
+        public static string Truncate(this string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+            return value.Length <= maxLength ? value : value.Substring(0, maxLength);
+        }
+        public static IServiceCollection AddStartupTask<T>(this IServiceCollection services)
+            where T : class, IStartupTask
+            => services.AddTransient<IStartupTask, T>();
+        public static async Task StartWithTasksAsync(this IWebHost webHost, CancellationToken cancellationToken = default)
+        {
+            // Load all tasks from DI
+            var startupTasks = webHost.Services.GetServices<IStartupTask>();
+
+            // Execute all the tasks
+            foreach (var startupTask in startupTasks)
+            {
+                await startupTask.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // Start the tasks as normal
+            await webHost.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
         public static string PrettyPrint(this TimeSpan expiration)
         {
             StringBuilder builder = new StringBuilder();
@@ -79,9 +111,16 @@ namespace BTCPayServer
             }
             return value;
         }
+
+        public static bool HasStatusMessage(this ITempDataDictionary tempData)
+        {
+            return (tempData.Peek(WellKnownTempData.SuccessMessage) ??
+                   tempData.Peek(WellKnownTempData.ErrorMessage) ??
+                   tempData.Peek("StatusMessageModel")) != null;
+        }
         public static PaymentMethodId GetpaymentMethodId(this InvoiceCryptoInfo info)
         {
-            return new PaymentMethodId(info.CryptoCode, Enum.Parse<PaymentTypes>(info.PaymentType));
+            return new PaymentMethodId(info.CryptoCode, PaymentTypes.Parse(info.PaymentType));
         }
         public static async Task CloseSocket(this WebSocket webSocket)
         {
@@ -97,20 +136,6 @@ namespace BTCPayServer
             catch { }
             finally { try { webSocket.Dispose(); } catch { } }
         }
-        public static bool SupportDropColumn(this Microsoft.EntityFrameworkCore.Migrations.Migration migration, string activeProvider)
-        {
-            return activeProvider != "Microsoft.EntityFrameworkCore.Sqlite";
-        }
-
-        public static bool SupportDropForeignKey(this Microsoft.EntityFrameworkCore.Migrations.Migration migration, string activeProvider)
-        {
-            return activeProvider != "Microsoft.EntityFrameworkCore.Sqlite";
-        }
-        public static bool SupportDropForeignKey(this DatabaseFacade facade)
-        {
-            return facade.ProviderName != "Microsoft.EntityFrameworkCore.Sqlite";
-        }
-
         public static async Task<Dictionary<uint256, TransactionResult>> GetTransactions(this BTCPayWallet client, uint256[] hashes, CancellationToken cts = default(CancellationToken))
         {
             hashes = hashes.Distinct().ToArray();
@@ -185,9 +210,45 @@ namespace BTCPayServer
             }
             if(IPAddress.TryParse(server, out var ip))
             {
-                return ip.IsLocal();
+                return ip.IsLocal() || ip.IsRFC1918();
             }
             return false;
+        }
+
+        public static void SetStatusMessageModel(this ITempDataDictionary tempData, StatusMessageModel statusMessage)
+        {
+            if (statusMessage == null)
+            {
+                tempData.Remove("StatusMessageModel");
+                return;
+            }
+            tempData["StatusMessageModel"] = JObject.FromObject(statusMessage).ToString(Formatting.None);
+        }
+
+        public static StatusMessageModel GetStatusMessageModel(this ITempDataDictionary tempData)
+        {
+            tempData.TryGetValue(WellKnownTempData.SuccessMessage, out var successMessage);
+            tempData.TryGetValue(WellKnownTempData.ErrorMessage, out var errorMessage);
+            tempData.TryGetValue("StatusMessageModel", out var model);
+            if (successMessage != null || errorMessage != null)
+            {
+                var parsedModel = new StatusMessageModel();
+                parsedModel.Message = (string)successMessage ?? (string)errorMessage;
+                if (successMessage != null)
+                {
+                    parsedModel.Severity = StatusMessageModel.StatusSeverity.Success;
+                }
+                else
+                {
+                    parsedModel.Severity = StatusMessageModel.StatusSeverity.Error;
+                }
+                return parsedModel;
+            }
+            else if (model != null && model is string str)
+            {
+                return JObject.Parse(str).ToObject<StatusMessageModel>();
+            }
+            return null;
         }
 
         public static bool IsOnion(this HttpRequest request)
@@ -204,6 +265,11 @@ namespace BTCPayServer
                         "://",
                         request.Host.ToUriComponent(),
                         request.PathBase.ToUriComponent());
+        }
+
+        public static Uri GetAbsoluteRootUri(this HttpRequest request)
+        {
+            return new Uri(request.GetAbsoluteRoot());
         }
 
         public static string GetCurrentUrl(this HttpRequest request)
@@ -304,12 +370,7 @@ namespace BTCPayServer
 
         public static string GetSIN(this ClaimsPrincipal principal)
         {
-            return principal.Claims.Where(c => c.Type == Claims.SIN).Select(c => c.Value).FirstOrDefault();
-        }
-
-        public static string GetStoreId(this ClaimsPrincipal principal)
-        {
-            return principal.Claims.Where(c => c.Type == Claims.OwnStore).Select(c => c.Value).FirstOrDefault();
+            return principal.Claims.Where(c => c.Type == Security.Bitpay.BitpayClaims.SIN).Select(c => c.Value).FirstOrDefault();
         }
 
         public static void SetIsBitpayAPI(this HttpContext ctx, bool value)
@@ -317,13 +378,6 @@ namespace BTCPayServer
             NBitcoin.Extensions.TryAdd(ctx.Items, "IsBitpayAPI", value);
         }
 
-        public static void AddRange<T>(this HashSet<T> hashSet, IEnumerable<T> items)
-        {
-            foreach (var item in items)
-            {
-                hashSet.Add(item);
-            }
-        }
         public static bool GetIsBitpayAPI(this HttpContext ctx)
         {
             return ctx.Items.TryGetValue("IsBitpayAPI", out object obj) &&
@@ -335,10 +389,15 @@ namespace BTCPayServer
             NBitcoin.Extensions.TryAdd(ctx.Items, "BitpayAuth", value);
         }
 
-        public static (string Signature, String Id, String Authorization) GetBitpayAuth(this HttpContext ctx)
+        public static bool TryGetBitpayAuth(this HttpContext ctx, out (string Signature, String Id, String Authorization) result)
         {
-            ctx.Items.TryGetValue("BitpayAuth", out object obj);
-            return ((string Signature, String Id, String Authorization))obj;
+            if (ctx.Items.TryGetValue("BitpayAuth", out object obj))
+            {
+                result = ((string Signature, String Id, String Authorization))obj;
+                return true;
+            }
+            result = default;
+            return false;
         }
 
         public static StoreData GetStoreData(this HttpContext ctx)

@@ -6,13 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Text;
-using StandardConfiguration;
 using Microsoft.Extensions.Configuration;
-using NBXplorer;
-using BTCPayServer.Payments.Lightning;
-using Renci.SshNet;
-using NBitcoin.DataEncoders;
 using BTCPayServer.SSH;
 using BTCPayServer.Lightning;
 using Serilog.Events;
@@ -49,7 +43,7 @@ namespace BTCPayServer.Configuration
             private set;
         }
         public EndPoint SocksEndpoint { get; set; }
-
+        
         public List<NBXplorerConnectionSetting> NBXplorerConnectionSettings
         {
             get;
@@ -64,7 +58,16 @@ namespace BTCPayServer.Configuration
 
         public static string GetDebugLog(IConfiguration configuration)
         {
-            return configuration.GetValue<string>("debuglog", null);
+            var logfile = configuration.GetValue<string>("debuglog", null);
+            if (!string.IsNullOrEmpty(logfile))
+            {
+                if (!Path.IsPathRooted(logfile))
+                {
+                    var networkType = DefaultConfiguration.GetNetworkType(configuration);
+                    logfile = Path.Combine(configuration.GetDataDir(networkType), logfile);
+                }
+            }
+            return logfile;
         }
         public static LogEventLevel GetDebugLogLevel(IConfiguration configuration)
         {
@@ -75,9 +78,11 @@ namespace BTCPayServer.Configuration
         public void LoadArgs(IConfiguration conf)
         {
             NetworkType = DefaultConfiguration.GetNetworkType(conf);
-            var defaultSettings = BTCPayDefaultSettings.GetDefaultSettings(NetworkType);
-            DataDir = conf.GetOrDefault<string>("datadir", defaultSettings.DefaultDataDirectory);
+            DataDir = conf.GetDataDir(NetworkType);
             Logs.Configuration.LogInformation("Network: " + NetworkType.ToString());
+
+            if (conf.GetOrDefault<bool>("launchsettings", false) && NetworkType != NetworkType.Regtest)
+                throw new ConfigException($"You need to run BTCPayServer with the run.sh or run.ps1 script");
 
             var supportedChains = conf.GetOrDefault<string>("chains", "btc")
                                       .Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -85,12 +90,12 @@ namespace BTCPayServer.Configuration
             NetworkProvider = new BTCPayNetworkProvider(NetworkType).Filter(supportedChains.ToArray());
             foreach (var chain in supportedChains)
             {
-                if (NetworkProvider.GetNetwork(chain) == null)
+                if (NetworkProvider.GetNetwork<BTCPayNetworkBase>(chain) == null)
                     throw new ConfigException($"Invalid chains \"{chain}\"");
             }
 
             var validChains = new List<string>();
-            foreach (var net in NetworkProvider.GetAll())
+            foreach (var net in NetworkProvider.GetAll().OfType<BTCPayNetwork>())
             {
                 NBXplorerConnectionSetting setting = new NBXplorerConnectionSetting();
                 setting.CryptoCode = net.CryptoCode;
@@ -109,6 +114,8 @@ namespace BTCPayServer.Configuration
                                 $"If you have a lightning charge server: 'type=charge;server=https://charge.example.com;api-token=yourapitoken'" + Environment.NewLine +
                                 $"If you have a lnd server: 'type=lnd-rest;server=https://lnd:lnd@lnd.example.com;macaroon=abf239...;certthumbprint=2abdf302...'" + Environment.NewLine +
                                 $"              lnd server: 'type=lnd-rest;server=https://lnd:lnd@lnd.example.com;macaroonfilepath=/root/.lnd/admin.macaroon;certthumbprint=2abdf302...'" + Environment.NewLine +
+                                $"If you have an eclair server: 'type=eclair;server=http://eclair.com:4570;password=eclairpassword;bitcoin-host=bitcoind:37393;bitcoin-auth=bitcoinrpcuser:bitcoinrpcpassword" + Environment.NewLine +
+                                $"               eclair server: 'type=eclair;server=http://eclair.com:4570;password=eclairpassword;bitcoin-host=bitcoind:37393" + Environment.NewLine +
                                 $"Error: {error}" + Environment.NewLine +
                                 "This service will not be exposed through BTCPay Server");
                         }
@@ -177,12 +184,16 @@ namespace BTCPayServer.Configuration
                 try
                 {
                     sshSettings.CreateConnectionInfo();
+                    SSHSettings = sshSettings;
+                }
+                catch (NotSupportedException ex)
+                {
+                    Logs.Configuration.LogWarning($"The SSH key is not supported ({ex.Message}), try to generate the key with ssh-keygen using \"-m PEM\". Skipping SSH configuration...");
                 }
                 catch
                 {
                     throw new ConfigException($"sshkeyfilepassword is invalid");
                 }
-                SSHSettings = sshSettings;
             }
 
             var fingerPrints = conf.GetOrDefault<string>("sshtrustedfingerprints", "");
@@ -192,7 +203,7 @@ namespace BTCPayServer.Configuration
                 {
                     if (!SSHFingerprint.TryParse(fingerprint, out var f))
                         throw new ConfigException($"Invalid ssh fingerprint format {fingerprint}");
-                    TrustedFingerprints.Add(f);
+                    SSHSettings?.TrustedFingerprints.Add(f);
                 }
             }
 
@@ -243,13 +254,9 @@ namespace BTCPayServer.Configuration
             }
             settings.Password = conf.GetOrDefault<string>("sshpassword", "");
             settings.KeyFile = conf.GetOrDefault<string>("sshkeyfile", "");
+            settings.AuthorizedKeysFile = conf.GetOrDefault<string>("sshauthorizedkeys", "");
             settings.KeyFilePassword = conf.GetOrDefault<string>("sshkeyfilepassword", "");
             return settings;
-        }
-
-        internal bool IsTrustedFingerprint(byte[] fingerPrint, byte[] hostKey)
-        {
-            return TrustedFingerprints.Any(f => f.Match(fingerPrint, hostKey));
         }
 
         public string RootPath { get; set; }
@@ -275,7 +282,6 @@ namespace BTCPayServer.Configuration
             set;
         }
         public bool AllowAdminRegistration { get; set; }
-        public List<SSHFingerprint> TrustedFingerprints { get; set; } = new List<SSHFingerprint>();
         public SSHSettings SSHSettings
         {
             get;

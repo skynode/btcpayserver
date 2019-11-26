@@ -46,5 +46,7 @@
   "txCount_plural": "{{count}} transaktioner",
   "Pay with CoinSwitch": "Betal med CoinSwitch",
   "Pay with Changelly": "Betal med Changelly",
-  "Close": "Luk"
+  "Close": "Luk",
+  "NotPaid_ExtraTransaction": "Fakturaen er ikke fuldt ud betalt. Venligst send endnu en transaktion for at dække for den manglende mængde.",
+  "Recommended_Fee": "Recommended fee: {{feeRate}} sat/byte"
 }

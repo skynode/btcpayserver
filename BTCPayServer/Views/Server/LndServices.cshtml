@@ -1,11 +1,11 @@
-﻿@model LndGrpcServicesViewModel
+﻿@model LndServicesViewModel
 @{
     ViewData.SetActivePageAndTitle(ServerNavPages.Services);
 }
 
 
 <h4>LND @Model.ConnectionType</h4>
-<partial name="_StatusMessage" for="@TempData["StatusMessage"]" />
+<partial name="_StatusMessage" />
 <div class="row">
     <div class="col-md-6">
         <div asp-validation-summary="All" class="text-danger"></div>
@@ -90,7 +90,7 @@
             {
                 <div class="form-group">
                     <div id="qrCode"></div>
-                    <div id="qrCodeData" data-url="@Html.Raw(Model.QRCode)"></div>
+                    <div id="qrCodeData" data-url="@Model.QRCode"></div>
                 </div>
                 <p>See QR Code information by clicking <a href="#detailsQR" data-toggle="collapse">here</a></p>
                 <div id="detailsQR" class="collapse">
@@ -180,13 +180,14 @@
 
     @if(Model.QRCode != null)
     {
-        <script type="text/javascript" src="~/js/qrcode.min.js"></script>
+        <script type="text/javascript" src="~/js/qrcode.js"></script>
         <script type="text/javascript">
         new QRCode(document.getElementById("qrCode"),
             {
-                text: "@Html.Raw(Model.QRCode)",
-                width: 150,
-                height: 150
+                text: @Safe.Json(Model.QRCode),
+                width: 200,
+                height: 200,
+                useSVG: true
             });
         </script>
     }

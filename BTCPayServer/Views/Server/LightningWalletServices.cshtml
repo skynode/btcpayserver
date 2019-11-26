@@ -5,7 +5,7 @@
 
 
 <h4>@Model.WalletName</h4>
-<partial name="_StatusMessage" for="@TempData["StatusMessage"]" />
+<partial name="_StatusMessage" />
 
 @if (Model.ShowQR)
 {
@@ -30,7 +30,7 @@
         <div class="form-group">
             <h5>Browser connection</h5>
             <p>
-                <span>You can go to @Model.WalletName from your browser by <a href="@Model.ServiceLink" target="_blank">clicking here</a><br /></span>
+                <span>You can go to @Model.WalletName from your browser by <a href="@Model.ServiceLink">clicking here</a><br /></span>
             </p>
         </div>
 
@@ -54,7 +54,7 @@
             {
                 <div class="form-group">
                     <div id="qrCode"></div>
-                    <div id="qrCodeData" data-url="@Html.Raw(Model.ServiceLink)"></div>
+                    <div id="qrCodeData" data-url="@Model.ServiceLink"></div>
                 </div>
             }
         </div>
@@ -66,13 +66,14 @@
 
     @if (Model.ShowQR)
     {
-        <script type="text/javascript" src="~/js/qrcode.min.js"></script>
+        <script type="text/javascript" src="~/js/qrcode.js"></script>
         <script type="text/javascript">
         new QRCode(document.getElementById("qrCode"),
             {
-                text: "@Html.Raw(Model.ServiceLink)",
-                width: 150,
-                height: 150
+                text: @Safe.Json(Model.ServiceLink),
+                width: 200,
+                height: 200,
+                useSVG: true
             });
         </script>
     }

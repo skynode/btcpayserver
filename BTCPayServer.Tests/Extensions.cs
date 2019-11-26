@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Tests.Logging;
 using Microsoft.AspNetCore.Mvc;
@@ -14,7 +14,6 @@ namespace BTCPayServer.Tests
         public static void ScrollTo(this IWebDriver driver, By by)
         {
             var element = driver.FindElement(by);
-            ((IJavaScriptExecutor)driver).ExecuteScript($"window.scrollBy({element.Location.X},{element.Location.Y});");
         }
         /// <summary>
         /// Sometimes the chrome driver is fucked up and we need some magic to click on the element.
@@ -29,6 +28,11 @@ namespace BTCPayServer.Tests
             try
             {
                 Assert.NotEmpty(driver.FindElements(By.ClassName("navbar-brand")));
+                if (driver.PageSource.Contains("alert-danger"))
+                {
+                    foreach (var dangerAlert in driver.FindElements(By.ClassName("alert-danger")))
+                        Assert.False(dangerAlert.Displayed, "No alert should be displayed");
+                }
             }
             catch
             {
@@ -69,6 +73,28 @@ namespace BTCPayServer.Tests
             Assert.NotNull(result);
             var vr = Assert.IsType<ViewResult>(result);
             return Assert.IsType<T>(vr.Model);
+        }
+
+        public static void AssertElementNotFound(this IWebDriver driver, By by)
+        {
+            DateTimeOffset now = DateTimeOffset.Now;
+            var wait = SeleniumTester.ImplicitWait;
+
+            while (DateTimeOffset.UtcNow - now < wait)
+            {
+                try
+                {
+                    var webElement = driver.FindElement(by);
+                    if (!webElement.Displayed)
+                        return;
+                }
+                catch (NoSuchElementException)
+                {
+                    return;
+                }
+                Thread.Sleep(50);
+            }
+            Assert.False(true, "Elements was found");
         }
     }
 }

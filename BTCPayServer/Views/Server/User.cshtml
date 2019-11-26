@@ -5,15 +5,17 @@
 
 
 <h4>Modify User - @Model.Email</h4>
-<partial name="_StatusMessage" for="StatusMessage" />
+<partial name="_StatusMessage" />
 
 
 <div class="row">
     <div class="col-md-8">
         <form method="post">
             <div class="form-group">
-                <label asp-for="IsAdmin"></label>
-                <input asp-for="IsAdmin" type="checkbox" class="form-check" />
+                <div class="form-check">
+                    <input asp-for="IsAdmin" type="checkbox" class="form-check-input" />
+                    <label asp-for="IsAdmin" class="form-check-label"></label>
+                </div>
             </div>
             <button name="command" type="submit" class="btn btn-primary" value="Save">Save</button>
         </form>

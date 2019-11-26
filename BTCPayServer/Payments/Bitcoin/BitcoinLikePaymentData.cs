@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using BTCPayServer.Data;
 using BTCPayServer.Services.Invoices;
 using NBitcoin;
 using Newtonsoft.Json;
@@ -11,7 +12,7 @@ namespace BTCPayServer.Payments.Bitcoin
 
     public class BitcoinLikePaymentData : CryptoPaymentData
     {
-        public PaymentTypes GetPaymentType()
+        public PaymentType GetPaymentType()
         {
             return PaymentTypes.BTCLike;
         }
@@ -26,6 +27,8 @@ namespace BTCPayServer.Payments.Bitcoin
             ConfirmationCount = 0;
             RBF = rbf;
         }
+        [JsonIgnore]
+        public BTCPayNetworkBase Network { get; set; }
         [JsonIgnore]
         public OutPoint Outpoint { get; set; }
         [JsonIgnore]
@@ -54,12 +57,12 @@ namespace BTCPayServer.Payments.Bitcoin
             return Output.Value.ToDecimal(MoneyUnit.BTC);
         }
 
-        public bool PaymentCompleted(PaymentEntity entity, BTCPayNetwork network)
+        public bool PaymentCompleted(PaymentEntity entity)
         {
-            return ConfirmationCount >= network.MaxTrackedConfirmation;
+            return ConfirmationCount >= ((BTCPayNetwork)Network).MaxTrackedConfirmation;
         }
 
-        public bool PaymentConfirmed(PaymentEntity entity, SpeedPolicy speedPolicy, BTCPayNetwork network)
+        public bool PaymentConfirmed(PaymentEntity entity, SpeedPolicy speedPolicy)
         {
             if (speedPolicy == SpeedPolicy.HighSpeed)
             {
@@ -80,14 +83,14 @@ namespace BTCPayServer.Payments.Bitcoin
             return false;
         }
 
-        public BitcoinAddress GetDestination(BTCPayNetwork network)
+        public BitcoinAddress GetDestination()
         {
-            return Output.ScriptPubKey.GetDestinationAddress(network.NBitcoinNetwork);
+            return Output.ScriptPubKey.GetDestinationAddress(((BTCPayNetwork)Network).NBitcoinNetwork);
         }
 
-        string CryptoPaymentData.GetDestination(BTCPayNetwork network)
+        string CryptoPaymentData.GetDestination()
         {
-            return GetDestination(network).ToString();
+            return GetDestination().ToString();
         }
     }
 }

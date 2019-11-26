@@ -22,6 +22,10 @@ namespace BTCPayServer.Models.StoreViewModels
         public decimal Max { get; set; }
         public decimal Step { get; set; }
 
+        // Custom Amount properties (ButtonType = 1)
+        public bool SimpleInput { get; set; }
+        public bool FitButtonInline { get; set; }
+
         [Url]
         public string ServerIpn { get; set; }
         [Url]
@@ -30,6 +34,7 @@ namespace BTCPayServer.Models.StoreViewModels
         public string NotifyEmail { get; set; }
 
         public string StoreId { get; set; }
+        public string CheckoutQueryString { get; set; }
 
         // Data that influences Pay Button UI, but not invoice creation
         public string UrlRoot { get; set; }

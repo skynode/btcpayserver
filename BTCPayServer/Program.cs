@@ -16,13 +16,13 @@ using System.Collections;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using System.Threading;
 using Serilog;
+using System.Runtime.CompilerServices;
 
+[assembly:InternalsVisibleTo("BTCPayServer.Tests")]
 namespace BTCPayServer
 {
     class Program
     {
-        private const long MAX_DEBUG_LOG_FILE_SIZE = 2000000; // If debug log is in use roll it every N MB.
-
         static void Main(string[] args)
         {
             ServicePointManager.DefaultConnectionLimit = 100;
@@ -53,22 +53,12 @@ namespace BTCPayServer
                         l.AddFilter("Microsoft", LogLevel.Error);
                         l.AddFilter("System.Net.Http.HttpClient", LogLevel.Critical);
                         l.AddFilter("Microsoft.AspNetCore.Antiforgery.Internal", LogLevel.Critical);
+                        l.AddFilter("OpenIddict.Server.OpenIddictServerProvider", LogLevel.Error);
                         l.AddProvider(new CustomConsoleLogProvider(processor));
-
-                        // Use Serilog for debug log file.
-                        var debugLogFile = BTCPayServerOptions.GetDebugLog(conf);
-                        if (string.IsNullOrEmpty(debugLogFile) != false) return;
-                        Serilog.Log.Logger = new LoggerConfiguration()
-                            .Enrich.FromLogContext()
-                            .MinimumLevel.Is(BTCPayServerOptions.GetDebugLogLevel(conf))
-                            .WriteTo.File(debugLogFile, rollingInterval: RollingInterval.Day, fileSizeLimitBytes: MAX_DEBUG_LOG_FILE_SIZE, rollOnFileSizeLimit: true, retainedFileCountLimit: 1)
-                            .CreateLogger();
-
-                        l.AddSerilog(Serilog.Log.Logger);
                     })
                     .UseStartup<Startup>()
                     .Build();
-                host.StartAsync().GetAwaiter().GetResult();
+                host.StartWithTasksAsync().GetAwaiter().GetResult();
                 var urls = host.ServerFeatures.Get<IServerAddressesFeature>().Addresses;
                 foreach (var url in urls)
                 {

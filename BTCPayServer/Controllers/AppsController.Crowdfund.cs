@@ -36,6 +36,7 @@ namespace BTCPayServer.Controllers
             {
                 NotificationEmailWarning = !await IsEmailConfigured(app.StoreDataId),
                 Title = settings.Title,
+                StoreId = app.StoreDataId,
                 Enabled = settings.Enabled,
                 EnforceTargetAmount = settings.EnforceTargetAmount,
                 StartDate = settings.StartDate,
@@ -67,7 +68,7 @@ namespace BTCPayServer.Controllers
         }
         [HttpPost]
         [Route("{appId}/settings/crowdfund")]
-        public async Task<IActionResult> UpdateCrowdfund(string appId, UpdateCrowdfundViewModel vm)
+        public async Task<IActionResult> UpdateCrowdfund(string appId, UpdateCrowdfundViewModel vm, string command)
         {
             if (!string.IsNullOrEmpty( vm.TargetCurrency) && _currencies.GetCurrencyData(vm.TargetCurrency, false) == null)
                 ModelState.AddModelError(nameof(vm.TargetCurrency), "Invalid currency");
@@ -129,10 +130,10 @@ namespace BTCPayServer.Controllers
                 Title = vm.Title,
                 Enabled = vm.Enabled,
                 EnforceTargetAmount = vm.EnforceTargetAmount,
-                StartDate = vm.StartDate,
+                StartDate = vm.StartDate?.ToUniversalTime(),
                 TargetCurrency = vm.TargetCurrency,
-                Description = _htmlSanitizer.Sanitize( vm.Description),
-                EndDate = vm.EndDate,
+                Description = vm.Description,
+                EndDate = vm.EndDate?.ToUniversalTime(),
                 TargetAmount = vm.TargetAmount,
                 CustomCSSLink = vm.CustomCSSLink,
                 MainImageUrl = vm.MainImageUrl,
@@ -155,16 +156,25 @@ namespace BTCPayServer.Controllers
 
             app.TagAllInvoices = vm.UseAllStoreInvoices;
             app.SetSettings(newSettings);
-            await UpdateAppSettings(app);
 
-            _EventAggregator.Publish(new AppUpdated()
+            if (command == "save")
             {
-                AppId = appId,
-                StoreId = app.StoreDataId,
-                Settings = newSettings
-            });
-            StatusMessage = "App updated";
-            return RedirectToAction(nameof(UpdateCrowdfund), new {appId});
+                await _AppService.UpdateOrCreateApp(app);
+
+                _EventAggregator.Publish(new AppUpdated()
+                {
+                    AppId = appId,
+                    StoreId = app.StoreDataId,
+                    Settings = newSettings
+                });
+                TempData[WellKnownTempData.SuccessMessage] = "App updated";
+                return RedirectToAction(nameof(UpdateCrowdfund), new { appId });
+            }
+            else if (command == "viewapp")
+            {
+                return RedirectToAction(nameof(AppsPublicController.ViewCrowdfund), "AppsPublic", new { appId });
+            }
+            return NotFound();
         }
     }
 }

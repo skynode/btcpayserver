@@ -5,11 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Services.Invoices;
+using BTCPayServer.Services.Stores;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
-using NBitcoin;
-using NBXplorer;
-using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Services.PaymentRequests
 {
@@ -17,11 +14,14 @@ namespace BTCPayServer.Services.PaymentRequests
     {
         private readonly ApplicationDbContextFactory _ContextFactory;
         private readonly InvoiceRepository _InvoiceRepository;
+        private readonly StoreRepository _storeRepository;
 
-        public PaymentRequestRepository(ApplicationDbContextFactory contextFactory, InvoiceRepository invoiceRepository)
+        public PaymentRequestRepository(ApplicationDbContextFactory contextFactory, InvoiceRepository invoiceRepository,
+            StoreRepository storeRepository)
         {
             _ContextFactory = contextFactory;
             _InvoiceRepository = invoiceRepository;
+            _storeRepository = storeRepository;
         }
 
 
@@ -31,6 +31,7 @@ namespace BTCPayServer.Services.PaymentRequests
             {
                 if (string.IsNullOrEmpty(entity.Id))
                 {
+                    entity.Id = Guid.NewGuid().ToString();
                     await context.PaymentRequests.AddAsync(entity);
                 }
                 else
@@ -52,11 +53,12 @@ namespace BTCPayServer.Services.PaymentRequests
 
             using (var context = _ContextFactory.CreateContext())
             {
-                return await context.PaymentRequests.Include(x => x.StoreData)
+                var result = await context.PaymentRequests.Include(x => x.StoreData)
                     .Where(data =>
                         string.IsNullOrEmpty(userId) ||
                         (data.StoreData != null && data.StoreData.UserStores.Any(u => u.ApplicationUserId == userId)))
                     .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+                return result;
             }
         }
 
@@ -71,7 +73,7 @@ namespace BTCPayServer.Services.PaymentRequests
                 return await context.PaymentRequests.Include(x => x.StoreData)
                     .AnyAsync(data =>
                         data.Id == paymentRequestId &&
-                        (data.StoreData != null && data.StoreData.UserStores.Any(u => u.ApplicationUserId == userId)));
+                        (data.StoreData != null &&  data.StoreData.UserStores.Any(u => u.ApplicationUserId == userId)));
             }
         }
         
@@ -111,7 +113,9 @@ namespace BTCPayServer.Services.PaymentRequests
                 }
 
                 var total = await queryable.CountAsync(cancellationToken);
-                
+
+                queryable = queryable.OrderByDescending(u => u.Created);
+
                 if (query.Skip.HasValue)
                 {
                     queryable = queryable.Skip(query.Skip.Value);
@@ -121,7 +125,6 @@ namespace BTCPayServer.Services.PaymentRequests
                 {
                     queryable = queryable.Take(query.Count.Value);
                 }
-
                 return (total, await queryable.ToArrayAsync(cancellationToken));
             }
         }
@@ -130,7 +133,7 @@ namespace BTCPayServer.Services.PaymentRequests
         {
             using (var context = _ContextFactory.CreateContext())
             {
-                var canDelete = !EnumerableExtensions.Any((await GetInvoicesForPaymentRequest(id)));
+                var canDelete = !(await GetInvoicesForPaymentRequest(id)).Any();
                 if (!canDelete) return false;
                 var pr = await FindPaymentRequest(id, userId);
                 if (pr == null)
@@ -197,58 +200,5 @@ namespace BTCPayServer.Services.PaymentRequests
         public string UserId { get; set; }
         public int? Skip { get; set; }
         public int? Count { get; set; }
-    }
-
-    public class PaymentRequestData
-    {
-        public string Id { get; set; }
-        public string StoreDataId { get; set; }
-
-        public StoreData StoreData { get; set; }
-
-        public PaymentRequestStatus Status { get; set; }
-
-        public byte[] Blob { get; set; }
-
-        public PaymentRequestBlob GetBlob()
-        {
-            var result = Blob == null
-                ? new PaymentRequestBlob()
-                : JObject.Parse(ZipUtils.Unzip(Blob)).ToObject<PaymentRequestBlob>();
-            return result;
-        }
-
-        public bool SetBlob(PaymentRequestBlob blob)
-        {
-            var original = new Serializer(Network.Main).ToString(GetBlob());
-            var newBlob = new Serializer(Network.Main).ToString(blob);
-            if (original == newBlob)
-                return false;
-            Blob = ZipUtils.Zip(newBlob);
-            return true;
-        }
-
-        public class PaymentRequestBlob
-        {
-            public decimal Amount { get; set; }
-            public string Currency { get; set; }
-
-            public DateTime? ExpiryDate { get; set; }
-
-            public string Title { get; set; }
-            public string Description { get; set; }
-            public string Email { get; set; }
-
-            public string EmbeddedCSS { get; set; }
-            public string CustomCSSLink { get; set; }
-            public bool AllowCustomPaymentAmounts { get; set; }
-        }
-
-        public enum PaymentRequestStatus
-        {
-            Pending = 0,
-            Completed = 1,
-            Expired = 2
-        }
     }
 }

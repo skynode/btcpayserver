@@ -32,13 +32,14 @@ namespace BTCPayServer.Models.StoreViewModels
         public bool Confirmation { get; set; }
         public bool Enabled { get; set; } = true;
 
-        public string StatusMessage { get; internal set; }
         public KeyPath RootKeyPath { get; set; }
 
         [Display(Name = "Coldcard Wallet File")]
         public IFormFile ColdcardPublicFile{ get; set; }
         public string Config { get; set; }
         public string Source { get; set; }
+        public string DerivationSchemeFormat { get; set; }
         public string AccountKey { get; set; }
+        public BTCPayNetwork Network { get; set; }
     }
 }

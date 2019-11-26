@@ -6,8 +6,8 @@
 <section>
     <div class="container">
         <div class="row">
-            <div class="col-lg-12 text-center">
-                <h2 class="section-heading">@ViewData["Title"]</h2>
+            <div class="col-lg-12 section-heading">
+                <h2>@ViewData["Title"]</h2>
                 <hr class="primary">
                 <p>Create and manage store settings.</p>
             </div>
@@ -33,12 +33,12 @@
             <div class="col-md-4">
                 <form asp-action="Pair" method="post">
                     <div class="form-group">
-                        <label asp-for="SelectedStore"></label>
-                        <select asp-for="SelectedStore" asp-items="@(new SelectList(Model.Stores,"Id","Name"))" class="form-control"></select>
-                        <span asp-validation-for="SelectedStore" class="text-danger"></span>
+                        <label asp-for="StoreId"></label>
+                        <select asp-for="StoreId" asp-items="@(new SelectList(Model.Stores,"Id","Name"))" class="form-control"></select>
+                        <span asp-validation-for="StoreId" class="text-danger"></span>
                     </div>
                     <input type="hidden" name="pairingCode" value="@Model.Id" />
-                    <button type="submit" class="btn btn-secondary" title="Approve this pairing demand">Approve</button>
+                    <button id="ApprovePairing" type="submit" class="btn btn-primary" title="Approve this pairing demand">Approve</button>
                 </form>
             </div>
             <div class="col-md-4"></div>

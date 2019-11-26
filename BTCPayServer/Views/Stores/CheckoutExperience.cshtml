@@ -4,8 +4,7 @@
     ViewData.SetActivePageAndTitle(StoreNavPages.Checkout, "Checkout experience");
 }
 
-<h4>@ViewData["Title"]</h4>
-<partial name="_StatusMessage" for="@TempData["TempDataProperty-StatusMessage"]" />
+<partial name="_StatusMessage" />
 
 <div class="row">
     <div class="col-md-6">
@@ -17,11 +16,13 @@
         <form method="post">
             <div class="form-group">
                 <label asp-for="CustomLogo"></label>
+                <a href="https://docs.btcpayserver.org/development/theme#checkout-page-theme" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="CustomLogo" class="form-control" />
                 <span asp-validation-for="CustomLogo" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <label asp-for="CustomCSS"></label>
+                <a href="https://docs.btcpayserver.org/development/theme#checkout-page-theme" target="_blank"><span class="fa fa-question-circle-o" title="More information..."></span></a>
                 <input asp-for="CustomCSS" class="form-control" />
                 <span asp-validation-for="CustomCSS" class="text-danger"></span>
             </div>
@@ -39,8 +40,10 @@
                 <select asp-for="DefaultLang" asp-items="Model.Languages" class="form-control"></select>
             </div>
             <div class="form-group">
-                <label asp-for="RequiresRefundEmail"></label>
-                <input asp-for="RequiresRefundEmail" type="checkbox" class="form-check" />
+                <div class="form-check">
+                    <input asp-for="RequiresRefundEmail" type="checkbox" class="form-check-input" />
+                    <label asp-for="RequiresRefundEmail" class="form-check-label"></label>
+                </div>
             </div>
             <div class="form-group">
                 <label asp-for="OnChainMinValue"></label>
@@ -55,16 +58,27 @@
                 <p class="form-text text-muted">Example: 5.50 USD</p>
             </div>
             <div class="form-group">
-                <label asp-for="LightningAmountInSatoshi"></label>
-                <input asp-for="LightningAmountInSatoshi" type="checkbox" class="form-check" />
-                <span asp-validation-for="LightningAmountInSatoshi" class="text-danger"></span>
+                <div class="form-check">
+                    <input asp-for="LightningAmountInSatoshi" type="checkbox" class="form-check-input" />
+                    <label asp-for="LightningAmountInSatoshi" class="form-check-label"></label>
+                    <span asp-validation-for="LightningAmountInSatoshi" class="text-danger"></span>
+                </div>
+                <div class="form-check">
+                    <input asp-for="RedirectAutomatically" type="checkbox" class="form-check-input" />
+                    <label asp-for="RedirectAutomatically" class="form-check-label"></label>
+                    <span asp-validation-for="RedirectAutomatically" class="text-danger"></span>
+                </div>
+                <div class="form-check">
+                    <input asp-for="ShowRecommendedFee" type="checkbox" class="form-check-input" />
+                    <label asp-for="ShowRecommendedFee" class="form-check-label"></label>
+                    <p class="form-text text-muted">Fee will be shown for BTC and LTC onchain payments only.</p>
+                </div>
             </div>
             <div class="form-group">
-                <label asp-for="RedirectAutomatically"></label>
-                <input asp-for="RedirectAutomatically" type="checkbox" class="form-check" />
-                <span asp-validation-for="RedirectAutomatically" class="text-danger"></span>
+                <label asp-for="RecommendedFeeBlockTarget"></label>
+                <input asp-for="RecommendedFeeBlockTarget" class="form-control" />
+                <span asp-validation-for="RecommendedFeeBlockTarget" class="text-danger"></span>
             </div>
-            <br />
             <button name="command" type="submit" class="btn btn-primary" value="Save">Save</button>
         </form>
     </div>

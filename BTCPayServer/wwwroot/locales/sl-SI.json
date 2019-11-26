@@ -46,5 +46,7 @@
   "txCount_plural": "{{count}} transakcij/e",
   "Pay with CoinSwitch": "Plačilo z CoinSwitch",
   "Pay with Changelly": "Plačilo z Changelly",
-  "Close": "Zapri"
+  "Close": "Zapri",
+  "NotPaid_ExtraTransaction": "Račun ni bil plačan v celoti. Potrebna je nova transakcija za doplačilo.",
+  "Recommended_Fee": "Priporočena provizija: {{feeRate}} sat/byte"
 }

@@ -42,7 +42,6 @@ namespace BTCPayServer.HostedServices
         IBackgroundJobClient _JobClient;
         EventAggregator _EventAggregator;
         InvoiceRepository _InvoiceRepository;
-        BTCPayNetworkProvider _NetworkProvider;
         private readonly EmailSenderFactory _EmailSenderFactory;
 
         public InvoiceNotificationManager(
@@ -51,20 +50,18 @@ namespace BTCPayServer.HostedServices
             EventAggregator eventAggregator,
             InvoiceRepository invoiceRepository,
             BTCPayNetworkProvider networkProvider,
-            ILogger<InvoiceNotificationManager> logger,
             EmailSenderFactory emailSenderFactory)
         {
             _Client = httpClientFactory.CreateClient();
             _JobClient = jobClient;
             _EventAggregator = eventAggregator;
             _InvoiceRepository = invoiceRepository;
-            _NetworkProvider = networkProvider;
             _EmailSenderFactory = emailSenderFactory;
         }
 
         void Notify(InvoiceEntity invoice, InvoiceEvent invoiceEvent, bool extendedNotification)
         {
-            var dto = invoice.EntityToDTO(_NetworkProvider);
+            var dto = invoice.EntityToDTO();
             var notification = new InvoicePaymentNotificationEventWrapper()
             {
                 Data = new InvoicePaymentNotification()
@@ -90,7 +87,7 @@ namespace BTCPayServer.HostedServices
                     Name = invoiceEvent.Name
                 },
                 ExtendedNotification = extendedNotification,
-                NotificationURL = invoice.NotificationURL
+                NotificationURL = invoice.NotificationURL?.AbsoluteUri
             };
 
             // For lightning network payments, paid, confirmed and completed come all at once.
@@ -133,11 +130,11 @@ namespace BTCPayServer.HostedServices
                     emailBody);
 
             }
-            if (string.IsNullOrEmpty(invoice.NotificationURL) || !Uri.IsWellFormedUriString(invoice.NotificationURL, UriKind.Absolute))
-                return;
-            var invoiceStr = NBitcoin.JsonConverters.Serializer.ToString(new ScheduledJob() { TryCount = 0, Notification = notification });
-            if (!string.IsNullOrEmpty(invoice.NotificationURL))
+            if (invoice.NotificationURL != null)
+            {
+                var invoiceStr = NBitcoin.JsonConverters.Serializer.ToString(new ScheduledJob() { TryCount = 0, Notification = notification });
                 _JobClient.Schedule((cancellation) => NotifyHttp(invoiceStr, cancellation), TimeSpan.Zero);
+            }
         }
 
         public async Task NotifyHttp(string invoiceData, CancellationToken cancellationToken)

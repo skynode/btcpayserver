@@ -1,10 +1,10 @@
-@model BTCPayServer.Services.U2F.Models.AddU2FDeviceViewModel
+@model BTCPayServer.U2F.Models.AddU2FDeviceViewModel
 @{
     ViewData.SetActivePageAndTitle(ManageNavPages.U2F, "Add U2F device");
 }
 
 <form asp-action="AddU2FDevice" method="post" id="registerForm" class="hidden">
-    
+
     <input type="hidden" asp-for="AppId"/>
     <input type="hidden" asp-for="Version"/>
     <input type="hidden" asp-for="Challenge"/>
@@ -14,13 +14,19 @@
 
 
 <div class="card">
-    <h3 class="card-title px-1"><span class="fa fa-spinner fa-spin"></span>Registering U2F Device</h3>
+    <div class="card-header">
+        <h4 style="margin-bottom:0;">
+            <span class="fa fa-spinner fa-spin" style="margin-right:.25rem;"></span>
+            Registering U2F Device
+        </h4>
+    </div>
+
     <div class="card-body">
         <p>Insert your U2F device or a hardware wallet into your computer's USB port. If it has a button, tap on it.</p>
-        
+
         <a id="error-response" class="text-danger" href="javascript:window.location.reload()"> </a>
     </div>
-    
+
     <div class="card-footer">
         <a class="btn btn-secondary" asp-action="U2FAuthentication" id="btn-back">Abort</a>
     </div>
@@ -39,7 +45,7 @@
         };
 
         setTimeout(function() {
-                var request = { "challenge": "@Model.Challenge", "version": "@Model.Version", "appId": "@Model.AppId" };
+                var request = { "challenge": @Safe.Json(Model.Challenge), "version": @Safe.Json(Model.Version), "appId": @Safe.Json(Model.AppId) };
                 var registerRequests = [{version: request.version, challenge: request.challenge}];
                 u2f.register(request.appId, registerRequests, [],
                     function(data) {

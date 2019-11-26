@@ -21,16 +21,27 @@ namespace BTCPayServer.HostedServices
     {
         public void Update(ThemeSettings data)
         {
+            if (String.IsNullOrWhiteSpace(data.ThemeCssUri))
+                _themeUri = "/main/themes/classic.css";
+            else
+                _themeUri = data.ThemeCssUri;
+
             if (String.IsNullOrWhiteSpace(data.BootstrapCssUri))
-                _bootstrapUri = "/vendor/bootstrap4/css/bootstrap.css?v=" + DateTime.Now.Ticks;
+                _bootstrapUri = "/main/bootstrap/bootstrap.css";
             else
                 _bootstrapUri = data.BootstrapCssUri;
 
-
             if (String.IsNullOrWhiteSpace(data.CreativeStartCssUri))
-                _creativeStartUri = "/vendor/bootstrap4-creativestart/creative.css?v=" + DateTime.Now.Ticks;
+                _creativeStartUri = "/main/bootstrap4-creativestart/creative.css";
             else
                 _creativeStartUri = data.CreativeStartCssUri;
+            FirstRun = data.FirstRun;
+        }
+
+        private string _themeUri;
+        public string ThemeUri
+        {
+            get { return _themeUri; }
         }
 
         private string _bootstrapUri;
@@ -52,6 +63,10 @@ namespace BTCPayServer.HostedServices
         public AppType? RootAppType { get; set; }
         public string RootAppId { get; set; }
 
+        public bool FirstRun { get; set; }
+
+        public List<PoliciesSettings.DomainToAppMappingItem> DomainToAppMapping { get; set; } = new List<PoliciesSettings.DomainToAppMappingItem>();
+
         internal void Update(PoliciesSettings data)
         {
             ShowRegister = !data.LockSubscription;
@@ -59,7 +74,11 @@ namespace BTCPayServer.HostedServices
 
             RootAppType = data.RootAppType;
             RootAppId = data.RootAppId;
+            DomainToAppMapping = data.DomainToAppMapping;
+            AllowLightningInternalNodeForAll = data.AllowLightningInternalNodeForAll;
         }
+
+        public bool AllowLightningInternalNodeForAll { get; set; }
     }
 
     public class ContentSecurityPolicyCssThemeManager : Attribute, IActionFilter, IOrderedFilter
@@ -68,7 +87,7 @@ namespace BTCPayServer.HostedServices
 
         public void OnActionExecuted(ActionExecutedContext context)
         {
-            
+
         }
 
         public void OnActionExecuting(ActionExecutingContext context)
@@ -82,6 +101,10 @@ namespace BTCPayServer.HostedServices
                     policies.Clear();
                 }
                 if (manager.BootstrapUri != null && Uri.TryCreate(manager.BootstrapUri, UriKind.Absolute, out uri))
+                {
+                    policies.Clear();
+                }
+                if (manager.ThemeUri != null && Uri.TryCreate(manager.ThemeUri, UriKind.Absolute, out uri))
                 {
                     policies.Clear();
                 }
@@ -111,7 +134,6 @@ namespace BTCPayServer.HostedServices
 
         async Task ListenForPoliciesChanges()
         {
-            await new SynchronizationContextRemover();
             var data = (await _SettingsRepository.GetSettingAsync<PoliciesSettings>()) ?? new PoliciesSettings();
             _CssThemeManager.Update(data);
             await _SettingsRepository.WaitSettingsChanged<PoliciesSettings>(Cancellation);
@@ -119,7 +141,6 @@ namespace BTCPayServer.HostedServices
 
         async Task ListenForThemeChanges()
         {
-            await new SynchronizationContextRemover();
             var data = (await _SettingsRepository.GetSettingAsync<ThemeSettings>()) ?? new ThemeSettings();
             _CssThemeManager.Update(data);
 

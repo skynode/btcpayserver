@@ -18,6 +18,9 @@ using BTCPayServer.Tests.Logging;
 using BTCPayServer.Lightning;
 using BTCPayServer.Lightning.CLightning;
 using BTCPayServer.Data;
+using OpenIddict.Abstractions;
+using OpenIddict.Core;
+using Microsoft.AspNetCore.Identity;
 
 namespace BTCPayServer.Tests
 {
@@ -33,6 +36,13 @@ namespace BTCPayServer.Tests
         public void GrantAccess()
         {
             GrantAccessAsync().GetAwaiter().GetResult();
+        }
+
+        public async Task MakeAdmin()
+        {
+            var userManager = parent.PayTester.GetService<UserManager<ApplicationUser>>();
+            var u = await userManager.FindByIdAsync(UserId);
+            await userManager.AddToRoleAsync(u, Roles.ServerAdmin);
         }
 
         public void Register()
@@ -76,7 +86,8 @@ namespace BTCPayServer.Tests
 
         public T GetController<T>(bool setImplicitStore = true) where T : Controller
         {
-            return parent.PayTester.GetController<T>(UserId, setImplicitStore ? StoreId : null);
+            var controller = parent.PayTester.GetController<T>(UserId, setImplicitStore ? StoreId : null, IsAdmin);
+            return controller;
         }
 
         public async Task CreateStoreAsync()
@@ -95,7 +106,7 @@ namespace BTCPayServer.Tests
         }
         public async Task<WalletId> RegisterDerivationSchemeAsync(string cryptoCode, bool segwit = false)
         {
-            SupportedNetwork = parent.NetworkProvider.GetNetwork(cryptoCode);
+            SupportedNetwork = parent.NetworkProvider.GetNetwork<BTCPayNetwork>(cryptoCode);
             var store = parent.PayTester.GetController<StoresController>(UserId, StoreId);
             ExtKey = new ExtKey().GetWif(SupportedNetwork.NBitcoinNetwork);
             DerivationScheme = new DerivationStrategyFactory(SupportedNetwork.NBitcoinNetwork).Parse(ExtKey.Neuter().ToString() + (segwit ? "" : "-[legacy]"));
@@ -138,6 +149,7 @@ namespace BTCPayServer.Tests
         {
             get; set;
         }
+        public bool IsAdmin { get; internal set; }
 
         public void RegisterLightningNode(string cryptoCode, LightningConnectionType connectionType)
         {
@@ -165,6 +177,15 @@ namespace BTCPayServer.Tests
             }, "save", "BTC");
             if (storeController.ModelState.ErrorCount != 0)
                 Assert.False(true, storeController.ModelState.FirstOrDefault().Value.Errors[0].ErrorMessage);
+        }
+
+        public async Task<BTCPayOpenIdClient> RegisterOpenIdClient(OpenIddictApplicationDescriptor descriptor, string secret = null)
+        {
+          var openIddictApplicationManager = parent.PayTester.GetService<OpenIddictApplicationManager<BTCPayOpenIdClient>>();
+          var client = new BTCPayOpenIdClient { Id = Guid.NewGuid().ToString(), ApplicationUserId = UserId};
+          await openIddictApplicationManager.PopulateAsync(client, descriptor);
+          await openIddictApplicationManager.CreateAsync(client, secret);
+          return client;
         }
     }
 }

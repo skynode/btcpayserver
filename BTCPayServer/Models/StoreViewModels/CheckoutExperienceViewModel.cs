@@ -27,10 +27,8 @@ namespace BTCPayServer.Models.StoreViewModels
         public string DefaultLang { get; set; }
 
         [Display(Name = "Link to a custom CSS stylesheet")]
-        [Uri]
         public string CustomCSS { get; set; }
         [Display(Name = "Link to a custom logo")]
-        [Uri]
         public string CustomLogo { get; set; }
 
         [Display(Name = "Custom HTML title to display on Checkout page")]
@@ -38,6 +36,13 @@ namespace BTCPayServer.Models.StoreViewModels
 
         [Display(Name = "Requires a refund email")]
         public bool RequiresRefundEmail { get; set; }
+
+        [Display(Name = "Show recommended fee")]
+        public bool ShowRecommendedFee { get; set; }
+
+        [Display(Name = "Recommended fee confirmation target blocks")]
+        [Range(1, double.PositiveInfinity)]
+        public int RecommendedFeeBlockTarget { get; set; }
 
         [Display(Name = "Do not propose on chain payment if the value of the invoice is below...")]
         [MaxLength(20)]

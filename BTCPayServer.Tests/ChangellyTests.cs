@@ -21,25 +21,26 @@ namespace BTCPayServer.Tests
 {
     public class ChangellyTests
     {
+        public const int TestTimeout = 60_000;
         public ChangellyTests(ITestOutputHelper helper)
         {
             Logs.Tester = new XUnitLog(helper) {Name = "Tests"};
             Logs.LogProvider = new XUnitLogProvider(helper);
         }
 
-        [Fact(Timeout = 60000)]
+        [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public async void CanSetChangellyPaymentMethod()
         {
             using (var tester = ServerTester.Create())
             {
-                tester.Start();
+                await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 var controller = tester.PayTester.GetController<StoresController>(user.UserId, user.StoreId);
 
 
-                var storeBlob = controller.StoreData.GetStoreBlob();
+                var storeBlob = controller.CurrentStore.GetStoreBlob();
                 Assert.Null(storeBlob.ChangellySettings);
 
                 var updateModel = new UpdateChangellySettingsViewModel()
@@ -54,7 +55,7 @@ namespace BTCPayServer.Tests
                     await controller.UpdateChangellySettings(user.StoreId, updateModel, "save")).ActionName);
 
                 var store = await tester.PayTester.StoreRepository.FindStore(user.StoreId);
-                storeBlob = controller.StoreData.GetStoreBlob();
+                storeBlob = controller.CurrentStore.GetStoreBlob();
                 Assert.NotNull(storeBlob.ChangellySettings);
                 Assert.NotNull(storeBlob.ChangellySettings);
                 Assert.IsType<ChangellySettings>(storeBlob.ChangellySettings);
@@ -68,13 +69,13 @@ namespace BTCPayServer.Tests
         }
 
 
-        [Fact]
+        [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
-        public async void CanToggleChangellyPaymentMethod()
+        public async Task CanToggleChangellyPaymentMethod()
         {
             using (var tester = ServerTester.Create())
             {
-                tester.Start();
+                await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 var controller = tester.PayTester.GetController<StoresController>(user.UserId, user.StoreId);
@@ -106,13 +107,13 @@ namespace BTCPayServer.Tests
             }
         }
 
-        [Fact]
+        [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public async void CannotUseChangellyApiWithoutChangellyPaymentMethodSet()
         {
             using (var tester = ServerTester.Create())
             {
-                tester.Start();
+                await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
                 var changellyController =
@@ -161,13 +162,13 @@ namespace BTCPayServer.Tests
             };
         }
 
-        [Fact]
+        [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public async void CanGetCurrencyListFromChangelly()
         {
             using (var tester = ServerTester.Create())
             {
-                tester.Start();
+                await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
 
@@ -194,13 +195,13 @@ namespace BTCPayServer.Tests
         }
 
 
-        [Fact]
+        [Fact(Timeout = TestTimeout)]
         [Trait("Integration", "Integration")]
         public async void CanCalculateToAmountForChangelly()
         {
             using (var tester = ServerTester.Create())
             {
-                tester.Start();
+                await tester.StartAsync();
                 var user = tester.NewAccount();
                 user.GrantAccess();
 
@@ -224,7 +225,7 @@ namespace BTCPayServer.Tests
         }
 
         [Fact]
-        [Trait("Integration", "Integration")]
+        [Trait("Fast", "Fast")]
         public void CanComputeBaseAmount()
         {
             Assert.Equal(1, ChangellyCalculationHelper.ComputeBaseAmount(1, 1));
@@ -234,7 +235,7 @@ namespace BTCPayServer.Tests
         }
 
         [Fact]
-        [Trait("Integration", "Integration")]
+        [Trait("Fast", "Fast")]
         public void CanComputeCorrectAmount()
         {
             Assert.Equal(1, ChangellyCalculationHelper.ComputeCorrectAmount(0.5m, 1, 2));

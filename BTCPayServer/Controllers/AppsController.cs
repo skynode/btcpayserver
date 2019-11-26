@@ -19,7 +19,7 @@ using NBitcoin.DataEncoders;
 
 namespace BTCPayServer.Controllers
 {
-    [Authorize(AuthenticationSchemes = Policies.CookieAuthentication)]
+    [Authorize(AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     [AutoValidateAntiforgeryToken]
     [Route("apps")]
     public partial class AppsController : Controller
@@ -30,7 +30,6 @@ namespace BTCPayServer.Controllers
             EventAggregator eventAggregator,
             BTCPayNetworkProvider networkProvider,
             CurrencyNameTable currencies,
-            HtmlSanitizer htmlSanitizer,
             EmailSenderFactory emailSenderFactory,
             AppService AppService)
         {
@@ -39,7 +38,6 @@ namespace BTCPayServer.Controllers
             _EventAggregator = eventAggregator;
             _NetworkProvider = networkProvider;
             _currencies = currencies;
-            _htmlSanitizer = htmlSanitizer;
             _emailSenderFactory = emailSenderFactory;
             _AppService = AppService;
         }
@@ -49,12 +47,9 @@ namespace BTCPayServer.Controllers
         private readonly EventAggregator _EventAggregator;
         private BTCPayNetworkProvider _NetworkProvider;
         private readonly CurrencyNameTable _currencies;
-        private readonly HtmlSanitizer _htmlSanitizer;
         private readonly EmailSenderFactory _emailSenderFactory;
         private AppService _AppService;
 
-        [TempData]
-        public string StatusMessage { get; set; }
         public string CreatedAppId { get; set; }
 
         public async Task<IActionResult> ListApps()
@@ -74,7 +69,7 @@ namespace BTCPayServer.Controllers
             if (appData == null)
                 return NotFound();
             if (await _AppService.DeleteApp(appData))
-                StatusMessage = "App removed successfully";
+                TempData[WellKnownTempData.SuccessMessage] = "App removed successfully";
             return RedirectToAction(nameof(ListApps));
         }
 
@@ -85,12 +80,12 @@ namespace BTCPayServer.Controllers
             var stores = await _AppService.GetOwnedStores(GetUserId());
             if (stores.Length == 0)
             {
-                StatusMessage = new StatusMessageModel()
+                TempData.SetStatusMessageModel(new StatusMessageModel()
                 {
                     Html =
                         $"Error: You need to create at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
                     Severity = StatusMessageModel.StatusSeverity.Error
-                }.ToString();
+                });
                 return RedirectToAction(nameof(ListApps));
             }
             var vm = new CreateAppViewModel();
@@ -105,12 +100,12 @@ namespace BTCPayServer.Controllers
             var stores = await _AppService.GetOwnedStores(GetUserId());
             if (stores.Length == 0)
             {
-                StatusMessage = new StatusMessageModel()
+                TempData.SetStatusMessageModel(new StatusMessageModel()
                 {
                     Html =
                         $"Error: You need to create at least one store. <a href='{(Url.Action("CreateStore", "UserStores"))}'>Create store</a>",
                     Severity = StatusMessageModel.StatusSeverity.Error
-                }.ToString();
+                });
                 return RedirectToAction(nameof(ListApps));
             }
             var selectedStore = vm.SelectedStore;
@@ -127,32 +122,28 @@ namespace BTCPayServer.Controllers
 
             if (!stores.Any(s => s.Id == selectedStore))
             {
-                StatusMessage = "Error: You are not owner of this store";
+                TempData[WellKnownTempData.ErrorMessage] = "You are not owner of this store";
                 return RedirectToAction(nameof(ListApps));
             }
-            var id = Encoders.Base58.EncodeData(RandomUtils.GetBytes(20));
-            using (var ctx = _ContextFactory.CreateContext())
+            var appData = new AppData
             {
-                var appData = new AppData() { Id = id };
-                appData.StoreDataId = selectedStore;
-                appData.Name = vm.Name;
-                appData.AppType = appType.ToString();
-                ctx.Apps.Add(appData);
-                await ctx.SaveChangesAsync();
-            }
-            StatusMessage = "App successfully created";
-            CreatedAppId = id;
+                StoreDataId = selectedStore, 
+                Name = vm.Name, 
+                AppType = appType.ToString()
+            };
+            await _AppService.UpdateOrCreateApp(appData);
+            TempData[WellKnownTempData.SuccessMessage] = "App successfully created";
+            CreatedAppId = appData.Id;
 
             switch (appType)
             {
                 case AppType.PointOfSale:
-                    return RedirectToAction(nameof(UpdatePointOfSale), new { appId = id });
+                    return RedirectToAction(nameof(UpdatePointOfSale), new { appId = appData.Id });
                 case AppType.Crowdfund:
-                    return RedirectToAction(nameof(UpdateCrowdfund), new { appId = id });
+                    return RedirectToAction(nameof(UpdateCrowdfund), new { appId = appData.Id });
                 default:
                     return RedirectToAction(nameof(ListApps));
             }
-                
         }
 
         [HttpGet]

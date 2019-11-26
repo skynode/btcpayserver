@@ -13,7 +13,6 @@ using BTCPayServer.Tests.Logging;
 using BTCPayServer.Tests.Mocks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Internal;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -33,11 +32,13 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using OpenIddict.Abstractions;
 using Xunit;
 using BTCPayServer.Services;
 using System.Net.Http;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using System.Threading.Tasks;
+using AuthenticationSchemes = BTCPayServer.Security.AuthenticationSchemes;
 
 namespace BTCPayServer.Tests
 {
@@ -92,7 +93,7 @@ namespace BTCPayServer.Tests
 
         public bool MockRates { get; set; } = true;
 
-        public void Start()
+        public async Task StartAsync()
         {
             if (!Directory.Exists(_Directory))
                 Directory.CreateDirectory(_Directory);
@@ -100,7 +101,6 @@ namespace BTCPayServer.Tests
             string chainDirectory = Path.Combine(_Directory, chain);
             if (!Directory.Exists(chainDirectory))
                 Directory.CreateDirectory(chainDirectory);
-
 
             StringBuilder config = new StringBuilder();
             config.AppendLine($"{chain.ToLowerInvariant()}=1");
@@ -117,13 +117,25 @@ namespace BTCPayServer.Tests
             config.AppendLine($"ltc.explorer.url={LTCNBXplorerUri.AbsoluteUri}");
             config.AppendLine($"ltc.explorer.cookiefile=0");
             config.AppendLine($"btc.lightning={IntegratedLightning.AbsoluteUri}");
+            config.AppendLine($"torrcfile={TestUtils.GetTestDataFullPath("Tor/torrc")}");
+            config.AppendLine($"debuglog=debug.log");
+
+            var localLndBackupFile = Path.Combine(_Directory, "walletunlock.json");
+            File.Copy(TestUtils.GetTestDataFullPath("LndSeedBackup/walletunlock.json"), localLndBackupFile, true);
+            config.AppendLine($"btc.external.lndseedbackup={localLndBackupFile}");
+            if (!string.IsNullOrEmpty(SSHPassword) && string.IsNullOrEmpty(SSHKeyFile))
+                config.AppendLine($"sshpassword={SSHPassword}");
+            if (!string.IsNullOrEmpty(SSHKeyFile))
+                config.AppendLine($"sshkeyfile={SSHKeyFile}");
+            if (!string.IsNullOrEmpty(SSHConnection))
+                config.AppendLine($"sshconnection={SSHConnection}");
 
             if (TestDatabase == TestDatabases.MySQL && !String.IsNullOrEmpty(MySQL))
                 config.AppendLine($"mysql=" + MySQL);
             else if (!String.IsNullOrEmpty(Postgres))
                 config.AppendLine($"postgres=" + Postgres);
             var confPath = Path.Combine(chainDirectory, "settings.config");
-            File.WriteAllText(confPath, config.ToString());
+            await File.WriteAllTextAsync(confPath, config.ToString());
 
             ServerUri = new Uri("http://" + HostName + ":" + Port + "/");
             HttpClient = new HttpClient();
@@ -133,6 +145,7 @@ namespace BTCPayServer.Tests
             _Host = new WebHostBuilder()
                     .UseConfiguration(conf)
                     .UseContentRoot(FindBTCPayServerDirectory())
+                    .UseWebRoot(Path.Combine(FindBTCPayServerDirectory(), "wwwroot"))
                     .ConfigureServices(s =>
                     {
                         s.AddLogging(l =>
@@ -147,7 +160,7 @@ namespace BTCPayServer.Tests
                     .UseKestrel()
                     .UseStartup<Startup>()
                     .Build();
-            _Host.Start();
+            await _Host.StartWithTasksAsync();
 
             var urls = _Host.ServerFeatures.Get<IServerAddressesFeature>().Addresses;
             foreach (var url in urls)
@@ -220,39 +233,45 @@ namespace BTCPayServer.Tests
                 rateProvider.Providers.Add("bittrex", bittrex);
             }
 
-            
 
-            WaitSiteIsOperational().GetAwaiter().GetResult();
+            Logs.Tester.LogInformation("Waiting site is operational...");
+            await WaitSiteIsOperational();
+            Logs.Tester.LogInformation("Site is now operational");
         }
 
         private async Task WaitSiteIsOperational()
         {
-            var synching = WaitIsFullySynched();
-            var accessingHomepage = WaitCanAccessHomepage();
-            await Task.WhenAll(synching, accessingHomepage).ConfigureAwait(false);
-        }
-
-        private async Task WaitCanAccessHomepage()
-        {
-            var resp = await HttpClient.GetAsync("/").ConfigureAwait(false);
-            while (resp.StatusCode != HttpStatusCode.OK)
+            using (var cts = new CancellationTokenSource(20_000))
             {
-                await Task.Delay(10).ConfigureAwait(false);
+                var synching = WaitIsFullySynched(cts.Token);
+                var accessingHomepage = WaitCanAccessHomepage(cts.Token);
+                await Task.WhenAll(synching, accessingHomepage).ConfigureAwait(false);
             }
         }
 
-        private async Task WaitIsFullySynched()
+        private async Task WaitCanAccessHomepage(CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                var resp = await HttpClient.GetAsync("/", cancellationToken).ConfigureAwait(false);
+                if (resp.StatusCode == HttpStatusCode.OK)
+                    break;
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task WaitIsFullySynched(CancellationToken cancellationToken)
         {
             var dashBoard = GetService<NBXplorerDashboard>();
             while (!dashBoard.IsFullySynched())
             {
-                await Task.Delay(10).ConfigureAwait(false);
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
             }
         }
 
         private string FindBTCPayServerDirectory()
         {
-            var solutionDirectory = LanguageService.TryGetSolutionDirectoryInfo(Directory.GetCurrentDirectory());
+            var solutionDirectory = TestUtils.TryGetSolutionDirectoryInfo(Directory.GetCurrentDirectory());
             return Path.Combine(solutionDirectory.FullName, "BTCPayServer");
         }
 
@@ -274,7 +293,12 @@ namespace BTCPayServer.Tests
             return _Host.Services.GetRequiredService<T>();
         }
 
-        public T GetController<T>(string userId = null, string storeId = null, Claim[] additionalClaims = null) where T : Controller
+        public IServiceProvider ServiceProvider => _Host.Services;
+
+        public string SSHPassword { get; internal set; }
+        public string SSHKeyFile { get; internal set; }
+        public string SSHConnection { get; set; }
+        public T GetController<T>(string userId = null, string storeId = null, bool isAdmin = false) where T : Controller
         {
             var context = new DefaultHttpContext();
             context.Request.Host = new HostString("127.0.0.1", Port);
@@ -283,10 +307,10 @@ namespace BTCPayServer.Tests
             if (userId != null)
             {
                 List<Claim> claims = new List<Claim>();
-                claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
-                if (additionalClaims != null)
-                    claims.AddRange(additionalClaims);
-                context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), Policies.CookieAuthentication));
+                claims.Add(new Claim(OpenIddictConstants.Claims.Subject, userId));
+                if (isAdmin)
+                    claims.Add(new Claim(ClaimTypes.Role, Roles.ServerAdmin));
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(claims.ToArray(), AuthenticationSchemes.Cookie));
             }
             if (storeId != null)
             {
