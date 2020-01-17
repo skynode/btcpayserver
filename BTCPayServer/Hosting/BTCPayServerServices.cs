@@ -2,7 +2,6 @@
 using BTCPayServer.Services.Altcoins.Monero;
 using Microsoft.Extensions.Logging;
 using System;
-using System.IdentityModel.Tokens.Jwt;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.AspNetCore.Http;
@@ -48,7 +47,6 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using BTCPayServer.Models;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
@@ -63,11 +61,7 @@ namespace BTCPayServer.Hosting
     {
         public static IServiceCollection AddBTCPayServer(this IServiceCollection services, IConfiguration configuration)
         {
-#if NETCOREAPP21
-            services.AddSingleton<MvcNewtonsoftJsonOptions>();
-#else
 			services.AddSingleton<MvcNewtonsoftJsonOptions>(o =>  o.GetRequiredService<IOptions<MvcNewtonsoftJsonOptions>>().Value);
-#endif
             services.AddDbContext<ApplicationDbContext>((provider, o) =>
             {
                 var factory = provider.GetRequiredService<ApplicationDbContextFactory>();
@@ -103,7 +97,6 @@ namespace BTCPayServer.Hosting
             services.TryAddSingleton<EventAggregator>();
             services.TryAddSingleton<PaymentRequestService>();
             services.TryAddSingleton<U2FService>();
-            services.TryAddSingleton<CoinAverageSettings>();
             services.TryAddSingleton<ApplicationDbContextFactory>(o => 
             {
                 var opts = o.GetRequiredService<BTCPayServerOptions>();
@@ -281,7 +274,7 @@ namespace BTCPayServer.Hosting
                         .MinimumLevel.Is(BTCPayServerOptions.GetDebugLogLevel(configuration))
                         .WriteTo.File(debugLogFile, rollingInterval: RollingInterval.Day, fileSizeLimitBytes: MAX_DEBUG_LOG_FILE_SIZE, rollOnFileSizeLimit: true, retainedFileCountLimit: 1)
                         .CreateLogger();
-                    logBuilder.AddSerilog(Serilog.Log.Logger);
+                    logBuilder.AddProvider(new Serilog.Extensions.Logging.SerilogLoggerProvider(Log.Logger));
                 }
             });
             return services;

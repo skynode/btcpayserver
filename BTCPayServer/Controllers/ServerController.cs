@@ -84,76 +84,6 @@ namespace BTCPayServer.Controllers
             _sshState = sshState;
         }
 
-        [Route("server/rates")]
-        public async Task<IActionResult> Rates()
-        {
-            var rates = (await _SettingsRepository.GetSettingAsync<RatesSetting>()) ?? new RatesSetting();
-
-            var vm = new RatesViewModel()
-            {
-                CacheMinutes = rates.CacheInMinutes,
-                PrivateKey = rates.PrivateKey,
-                PublicKey = rates.PublicKey
-            };
-            await FetchRateLimits(vm);
-            return View(vm);
-        }
-
-        private static async Task FetchRateLimits(RatesViewModel vm)
-        {
-            var coinAverage = GetCoinaverageService(vm, false);
-            if (coinAverage != null)
-            {
-                try
-                {
-                    vm.RateLimits = await coinAverage.GetRateLimitsAsync();
-                }
-                catch { }
-            }
-        }
-
-        [Route("server/rates")]
-        [HttpPost]
-        public async Task<IActionResult> Rates(RatesViewModel vm)
-        {
-            var rates = (await _SettingsRepository.GetSettingAsync<RatesSetting>()) ?? new RatesSetting();
-            rates.PrivateKey = vm.PrivateKey;
-            rates.PublicKey = vm.PublicKey;
-            rates.CacheInMinutes = vm.CacheMinutes;
-            try
-            {
-                var service = GetCoinaverageService(vm, true);
-                if (service != null)
-                    await service.TestAuthAsync();
-            }
-            catch
-            {
-                ModelState.AddModelError(nameof(vm.PrivateKey), "Invalid API key pair");
-            }
-            if (!ModelState.IsValid)
-            {
-                await FetchRateLimits(vm);
-                return View(vm);
-            }
-            await _SettingsRepository.UpdateSetting(rates);
-            TempData[WellKnownTempData.SuccessMessage] = "Rate settings successfully updated";
-            return RedirectToAction(nameof(Rates));
-        }
-
-        private static CoinAverageRateProvider GetCoinaverageService(RatesViewModel vm, bool withAuth)
-        {
-            var settings = new CoinAverageSettings()
-            {
-                KeyPair = (vm.PublicKey, vm.PrivateKey)
-            };
-            if (!withAuth || settings.GetCoinAverageSignature() != null)
-            {
-                return new CoinAverageRateProvider()
-                { Authenticator = settings };
-            }
-            return null;
-        }
-
         [Route("server/users")]
         public IActionResult ListUsers(int skip = 0, int count = 50)
         {
@@ -1121,9 +1051,11 @@ namespace BTCPayServer.Controllers
             {
                 try
                 {
-                    var client = model.Settings.CreateSmtpClient();
-                    var message = model.Settings.CreateMailMessage(new MailAddress(model.TestEmail), "BTCPay test", "BTCPay test");
-                    await client.SendMailAsync(message);
+                    using (var client = model.Settings.CreateSmtpClient())
+                    using (var message = model.Settings.CreateMailMessage(new MailAddress(model.TestEmail), "BTCPay test", "BTCPay test"))
+                    {
+                        await client.SendMailAsync(message);
+                    }
                     TempData[WellKnownTempData.SuccessMessage] = "Email sent to " + model.TestEmail + ", please, verify you received it";
                 }
                 catch (Exception ex)

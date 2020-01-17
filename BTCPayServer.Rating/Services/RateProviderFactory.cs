@@ -9,6 +9,7 @@ using ExchangeSharp;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Linq;
 using MemoryCache = Microsoft.Extensions.Caching.Memory.MemoryCache;
 
 namespace BTCPayServer.Services.Rates
@@ -24,7 +25,7 @@ namespace BTCPayServer.Services.Rates
             {
                 _inner = inner;
             }
-            public async Task<ExchangeRates> GetRatesAsync(CancellationToken cancellationToken)
+            public async Task<PairRate[]> GetRatesAsync(CancellationToken cancellationToken)
             {
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 try
@@ -34,7 +35,7 @@ namespace BTCPayServer.Services.Rates
                 catch (Exception ex)
                 {
                     Exception = ex;
-                    return new ExchangeRates();
+                    return Array.Empty<PairRate>();
                 }
                 finally
                 {
@@ -45,49 +46,15 @@ namespace BTCPayServer.Services.Rates
         public class QueryRateResult
         {
             public TimeSpan Latency { get; set; }
-            public ExchangeRates ExchangeRates { get; set; }
+            public PairRate[] PairRates { get; set; }
             public ExchangeException Exception { get; internal set; }
+            public string Exchange { get; internal set; }
         }
-        public RateProviderFactory(IOptions<MemoryCacheOptions> cacheOptions,
-                                   IHttpClientFactory httpClientFactory,
-                                   CoinAverageSettings coinAverageSettings)
+        public RateProviderFactory(IHttpClientFactory httpClientFactory)
         {
             _httpClientFactory = httpClientFactory;
-            _CoinAverageSettings = coinAverageSettings;
-            _CacheOptions = cacheOptions;
-            // We use 15 min because of limits with free version of bitcoinaverage
-            CacheSpan = TimeSpan.FromMinutes(15.0);
             InitExchanges();
         }
-        private IOptions<MemoryCacheOptions> _CacheOptions;
-        TimeSpan _CacheSpan;
-        public TimeSpan CacheSpan
-        {
-            get
-            {
-                return _CacheSpan;
-            }
-            set
-            {
-                _CacheSpan = value;
-                InvalidateCache();
-            }
-        }
-        public void InvalidateCache()
-        {
-            var cache = new MemoryCache(_CacheOptions);
-            foreach (var provider in Providers.Select(p => p.Value as CachedRateProvider).Where(p => p != null))
-            {
-                provider.CacheSpan = CacheSpan;
-                provider.MemoryCache = cache;
-            }
-            if (Providers.TryGetValue(CoinAverageRateProvider.CoinAverageName, out var coinAverage) && coinAverage is BackgroundFetcherRateProvider c)
-            {
-                c.RefreshRate = CacheSpan;
-                c.ValidatyTime = CacheSpan + TimeSpan.FromMinutes(1.0);
-            }
-        }
-        CoinAverageSettings _CoinAverageSettings;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly Dictionary<string, IRateProvider> _DirectProviders = new Dictionary<string, IRateProvider>();
         public Dictionary<string, IRateProvider> Providers
@@ -97,26 +64,39 @@ namespace BTCPayServer.Services.Rates
                 return _DirectProviders;
             }
         }
+        internal IEnumerable<AvailableRateProvider> GetDirectlySupportedExchanges()
+        {
+            yield return new AvailableRateProvider("binance", "Binance", "https://api.binance.com/api/v1/ticker/24hr");
+            yield return new AvailableRateProvider("bittrex", "Bittrex", "https://bittrex.com/api/v1.1/public/getmarketsummaries");
+            yield return new AvailableRateProvider("poloniex", "Poloniex", "https://poloniex.com/public?command=returnTicker");
+            yield return new AvailableRateProvider("hitbtc", "HitBTC", "https://api.hitbtc.com/api/2/public/ticker");
+            yield return new AvailableRateProvider("ndax", "NDAX", "https://ndax.io/api/returnTicker");
 
-        private void InitExchanges()
+            yield return new AvailableRateProvider("coingecko", "CoinGecko", "https://api.coingecko.com/api/v3/exchange_rates");
+            yield return new AvailableRateProvider("kraken", "Kraken", "https://api.kraken.com/0/public/Ticker?pair=ATOMETH,ATOMEUR,ATOMUSD,ATOMXBT,BATETH,BATEUR,BATUSD,BATXBT,BCHEUR,BCHUSD,BCHXBT,DAIEUR,DAIUSD,DAIUSDT,DASHEUR,DASHUSD,DASHXBT,EOSETH,EOSXBT,ETHCHF,ETHDAI,ETHUSDC,ETHUSDT,GNOETH,GNOXBT,ICXETH,ICXEUR,ICXUSD,ICXXBT,LINKETH,LINKEUR,LINKUSD,LINKXBT,LSKETH,LSKEUR,LSKUSD,LSKXBT,NANOETH,NANOEUR,NANOUSD,NANOXBT,OMGETH,OMGEUR,OMGUSD,OMGXBT,PAXGETH,PAXGEUR,PAXGUSD,PAXGXBT,SCETH,SCEUR,SCUSD,SCXBT,USDCEUR,USDCUSD,USDCUSDT,USDTCAD,USDTEUR,USDTGBP,USDTZUSD,WAVESETH,WAVESEUR,WAVESUSD,WAVESXBT,XBTCHF,XBTDAI,XBTUSDC,XBTUSDT,XDGEUR,XDGUSD,XETCXETH,XETCXXBT,XETCZEUR,XETCZUSD,XETHXXBT,XETHZCAD,XETHZEUR,XETHZGBP,XETHZJPY,XETHZUSD,XLTCXXBT,XLTCZEUR,XLTCZUSD,XMLNXETH,XMLNXXBT,XMLNZEUR,XMLNZUSD,XREPXETH,XREPXXBT,XREPZEUR,XXBTZCAD,XXBTZEUR,XXBTZGBP,XXBTZJPY,XXBTZUSD,XXDGXXBT,XXLMXXBT,XXMRXXBT,XXMRZEUR,XXMRZUSD,XXRPXXBT,XXRPZEUR,XXRPZUSD,XZECXXBT,XZECZEUR,XZECZUSD");
+            yield return new AvailableRateProvider("bylls", "Bylls", "https://bylls.com/api/price?from_currency=BTC&to_currency=CAD");
+            yield return new AvailableRateProvider("bitbank", "Bitbank", "https://public.bitbank.cc/prices");
+            yield return new AvailableRateProvider("bitpay", "Bitpay", "https://bitpay.com/rates");
+        }
+        void InitExchanges()
         {
             // We need to be careful to only add exchanges which OnGetTickers implementation make only 1 request
-            Providers.Add("binance", new ExchangeSharpRateProvider("binance", new ExchangeBinanceAPI(), true));
-            Providers.Add("bittrex", new ExchangeSharpRateProvider("bittrex", new ExchangeBittrexAPI(), true));
-            Providers.Add("poloniex", new ExchangeSharpRateProvider("poloniex", new ExchangePoloniexAPI(), true));
-            Providers.Add("hitbtc", new ExchangeSharpRateProvider("hitbtc", new ExchangeHitBTCAPI(), true));
-            Providers.Add("ndax", new ExchangeSharpRateProvider("ndax", new ExchangeNDAXAPI(), true));
-
-            // Cryptopia is often not available
-            // Disabled because of https://twitter.com/Cryptopia_NZ/status/1085084168852291586
-            // Providers.Add("cryptopia", new ExchangeSharpRateProvider("cryptopia", new ExchangeCryptopiaAPI(), false));
+            Providers.Add("binance", new ExchangeSharpRateProvider(new ExchangeBinanceAPI(), true));
+            Providers.Add("bittrex", new ExchangeSharpRateProvider(new ExchangeBittrexAPI(), true));
+            Providers.Add("poloniex", new ExchangeSharpRateProvider(new ExchangePoloniexAPI(), true));
+            Providers.Add("hitbtc", new ExchangeSharpRateProvider(new ExchangeHitBTCAPI(), true));
+            Providers.Add("ndax", new ExchangeSharpRateProvider(new ExchangeNDAXAPI(), true));
 
             // Handmade providers
-            Providers.Add(CoinAverageRateProvider.CoinAverageName, new CoinAverageRateProvider() { Exchange = CoinAverageRateProvider.CoinAverageName, HttpClient = _httpClientFactory?.CreateClient("EXCHANGE_COINAVERAGE"), Authenticator = _CoinAverageSettings });
+            Providers.Add("coingecko", new CoinGeckoRateProvider(_httpClientFactory));
             Providers.Add("kraken", new KrakenExchangeRateProvider() { HttpClient = _httpClientFactory?.CreateClient("EXCHANGE_KRAKEN") });
             Providers.Add("bylls", new ByllsRateProvider(_httpClientFactory?.CreateClient("EXCHANGE_BYLLS")));
             Providers.Add("bitbank", new BitbankRateProvider(_httpClientFactory?.CreateClient("EXCHANGE_BITBANK")));
             Providers.Add("bitpay", new BitpayRateProvider(_httpClientFactory?.CreateClient("EXCHANGE_BITPAY")));
+
+
+            // Backward compatibility: coinaverage should be using coingecko to prevent stores from breaking
+            Providers.Add("coinaverage", new CoinGeckoRateProvider(_httpClientFactory));
 
             // Those exchanges make multiple requests when calling GetTickers so we remove them
             //DirectProviders.Add("gemini", new ExchangeSharpRateProvider("gemini", new ExchangeGeminiAPI()));
@@ -126,57 +106,62 @@ namespace BTCPayServer.Services.Rates
 
             foreach (var provider in Providers.ToArray())
             {
-                if (provider.Key == "cryptopia") // Shitty exchange, rate often unavailable, it spams the logs
-                    continue;
-                var prov = new BackgroundFetcherRateProvider(Providers[provider.Key]);
-                if(provider.Key == CoinAverageRateProvider.CoinAverageName)
-                {
-                    prov.RefreshRate = CacheSpan;
-                    prov.ValidatyTime = CacheSpan + TimeSpan.FromMinutes(1.0);
-                }
-                else
-                {
-                    prov.RefreshRate = TimeSpan.FromMinutes(1.0);
-                    prov.ValidatyTime = TimeSpan.FromMinutes(5.0);
-                }
+                var prov = new BackgroundFetcherRateProvider(provider.Key, Providers[provider.Key]);
+                prov.RefreshRate = TimeSpan.FromMinutes(1.0);
+                prov.ValidatyTime = TimeSpan.FromMinutes(5.0);
                 Providers[provider.Key] = prov;
             }
 
-            var cache = new MemoryCache(_CacheOptions);
-            foreach (var supportedExchange in GetSupportedExchanges())
+            foreach (var supportedExchange in GetCoinGeckoSupportedExchanges())
             {
-                if (!Providers.ContainsKey(supportedExchange.Key))
+                if (!Providers.ContainsKey(supportedExchange.Id) && supportedExchange.Id != CoinGeckoRateProvider.CoinGeckoName)
                 {
-                    var coinAverage = new CoinAverageRateProvider()
+                    var coingecko = new CoinGeckoRateProvider(_httpClientFactory)
                     {
-                        Exchange = supportedExchange.Key,
-                        HttpClient = _httpClientFactory?.CreateClient(),
-                        Authenticator = _CoinAverageSettings
+                        UnderlyingExchange = supportedExchange.Id
                     };
-                    var cached = new CachedRateProvider(supportedExchange.Key, coinAverage, cache)
-                    {
-                        CacheSpan = CacheSpan
-                    };
-                    Providers.Add(supportedExchange.Key, cached);
+                    var bgFetcher = new BackgroundFetcherRateProvider(supportedExchange.Id, coingecko);
+                    bgFetcher.RefreshRate = TimeSpan.FromMinutes(1.0);
+                    bgFetcher.ValidatyTime = TimeSpan.FromMinutes(5.0);
+                    Providers.Add(supportedExchange.Id, bgFetcher);
                 }
             }
         }
 
-        public CoinAverageExchanges GetSupportedExchanges()
+        IEnumerable<AvailableRateProvider> _AvailableRateProviders = null;
+        public IEnumerable<AvailableRateProvider> GetSupportedExchanges()
         {
-            CoinAverageExchanges exchanges = new CoinAverageExchanges();
-            foreach (var exchange in _CoinAverageSettings.AvailableExchanges)
+            if (_AvailableRateProviders == null)
             {
-                exchanges.Add(exchange.Value);
+                var availableProviders = new Dictionary<string, AvailableRateProvider>();
+                foreach (var exchange in GetDirectlySupportedExchanges())
+                {
+                    availableProviders.Add(exchange.Id, exchange);
+                }
+                foreach (var exchange in GetCoinGeckoSupportedExchanges())
+                {
+                    availableProviders.TryAdd(exchange.Id, exchange);
+                }
+                _AvailableRateProviders = availableProviders.Values.OrderBy(o => o.Name).ToArray();
             }
+            return _AvailableRateProviders;
+        }
 
-            // Add other exchanges supported here
-            exchanges.Add(new CoinAverageExchange(CoinAverageRateProvider.CoinAverageName, "Coin Average", $"https://apiv2.bitcoinaverage.com/indices/global/ticker/short"));
-            exchanges.Add(new CoinAverageExchange("bylls", "Bylls", "https://bylls.com/api/price?from_currency=BTC&to_currency=CAD"));
-            exchanges.Add(new CoinAverageExchange("ndax", "NDAX", "https://ndax.io/api/returnTicker"));
-            exchanges.Add(new CoinAverageExchange("bitbank", "Bitbank", "https://public.bitbank.cc/prices"));
+        internal IEnumerable<AvailableRateProvider> GetCoinGeckoSupportedExchanges()
+        {
+            return JArray.Parse(CoinGeckoRateProvider.SupportedExchanges).Select(token =>
+                    new AvailableRateProvider(Normalize(token["id"].ToString().ToLowerInvariant()), token["id"].ToString().ToLowerInvariant(), token["name"].ToString(),
+                        $"https://api.coingecko.com/api/v3/exchanges/{token["id"]}/tickers", RateSource.Coingecko))
+                .Concat(new[] { new AvailableRateProvider("gdax", "gdax", string.Empty, $"https://api.coingecko.com/api/v3/exchanges/gdax", RateSource.Coingecko) });
+        }
 
-            return exchanges;
+        private string Normalize(string name)
+        {
+            if (name == "oasis_trade")
+                return "oasisdex";
+            if (name == "gdax")
+                return "coinbasepro";
+            return name;
         }
 
         public async Task<QueryRateResult> QueryRates(string exchangeName, CancellationToken cancellationToken)
@@ -188,8 +173,9 @@ namespace BTCPayServer.Services.Rates
             var value = await wrapper.GetRatesAsync(cancellationToken);
             return new QueryRateResult()
             {
+                Exchange = exchangeName,
                 Latency = wrapper.Latency,
-                ExchangeRates = value,
+                PairRates = value,
                 Exception = wrapper.Exception != null ? new ExchangeException() { Exception = wrapper.Exception, ExchangeName = exchangeName } : null
             };
         }

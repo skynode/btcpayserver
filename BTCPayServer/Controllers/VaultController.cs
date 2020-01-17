@@ -64,7 +64,6 @@ namespace BTCPayServer.Controllers
                 HwiEnumerateEntry deviceEntry = null;
                 HDFingerprint? fingerprint = null;
                 string password = null;
-                int? pin = null;
                 var websocketHelper = new WebSocketHelper(websocket);
 
                 async Task<bool> RequireDeviceUnlocking()
@@ -79,18 +78,23 @@ namespace BTCPayServer.Controllers
                         await websocketHelper.Send("{ \"error\": \"need-initialized\"}", cancellationToken);
                         return true;
                     }
-                    if ((deviceEntry.Code is HwiErrorCode.DeviceNotReady || deviceEntry.NeedsPinSent is true)
-                        && pin is null
-                        // Trezor T always show the pin on screen
-                        && (deviceEntry.Model != HardwareWalletModels.Trezor_T || deviceEntry.Model != HardwareWalletModels.Trezor_T_Simulator))
+                    if (deviceEntry.Code is HwiErrorCode.DeviceNotReady)
                     {
-                        await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
-                        return true;
-                    }
-                    if ((deviceEntry.Code is HwiErrorCode.DeviceNotReady || deviceEntry.NeedsPassphraseSent is true) && password == null)
-                    {
-                        await websocketHelper.Send("{ \"error\": \"need-passphrase\"}", cancellationToken);
-                        return true;
+                        if (IsTrezorT(deviceEntry))
+                        {
+                            await websocketHelper.Send("{ \"error\": \"need-passphrase-on-device\"}", cancellationToken);
+                            return true;
+                        }
+                        else if (deviceEntry.NeedsPinSent is true)
+                        {
+                            await websocketHelper.Send("{ \"error\": \"need-pin\"}", cancellationToken);
+                            return true;
+                        }
+                        else if (deviceEntry.NeedsPassphraseSent is true && password is null)
+                        {
+                            await websocketHelper.Send("{ \"error\": \"need-passphrase\"}", cancellationToken);
+                            return true;
+                        }
                     }
                     return false;
                 }
@@ -138,6 +142,19 @@ namespace BTCPayServer.Controllers
                                     await websocketHelper.Send("{ \"error\": \"wrong-wallet\"}", cancellationToken);
                                     continue;
                                 }
+                                var signableInputs = psbt.Inputs
+                                                .SelectMany(i => i.HDKeyPaths)
+                                                .Where(i => i.Value.MasterFingerprint == fingerprint)
+                                                .ToArray();
+                                if (signableInputs.Length > 0)
+                                {
+                                    var actualPubKey = (await device.GetXPubAsync(signableInputs[0].Value.KeyPath)).GetPublicKey();
+                                    if (actualPubKey != signableInputs[0].Key)
+                                    {
+                                        await websocketHelper.Send("{ \"error\": \"wrong-keypath\"}", cancellationToken);
+                                        continue;
+                                    }
+                                }
                                 try
                                 {
                                     psbt = await device.SignPSBTAsync(psbt, cancellationToken);
@@ -151,63 +168,120 @@ namespace BTCPayServer.Controllers
                                 o.Add("psbt", psbt.ToBase64());
                                 await websocketHelper.Send(o.ToString(), cancellationToken);
                                 break;
+                            case "display-address":
+                                if (await RequireDeviceUnlocking())
+                                {
+                                    continue;
+                                }
+                                var k = RootedKeyPath.Parse(await websocketHelper.NextMessageAsync(cancellationToken));
+                                await device.DisplayAddressAsync(GetScriptPubKeyType(k), k.KeyPath, cancellationToken);
+                                await websocketHelper.Send("{ \"info\": \"ok\"}", cancellationToken);
+                                break;
                             case "ask-pin":
                                 if (device == null)
                                 {
                                     await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
                                     continue;
                                 }
-                                await device.PromptPinAsync(cancellationToken);
-                                await websocketHelper.Send("{ \"info\": \"prompted, please input the pin\"}", cancellationToken);
-                                pin = int.Parse(await websocketHelper.NextMessageAsync(cancellationToken), CultureInfo.InvariantCulture);
-                                if (await device.SendPinAsync(pin.Value, cancellationToken))
+                                try
                                 {
-                                    await websocketHelper.Send("{ \"info\": \"the pin is correct\"}", cancellationToken);
+                                    await device.PromptPinAsync(cancellationToken);
+                                }
+                                catch (HwiException ex) when (ex.ErrorCode == HwiErrorCode.DeviceAlreadyUnlocked)
+                                {
+                                    await websocketHelper.Send("{ \"error\": \"device-already-unlocked\"}", cancellationToken);
+                                    continue;
+                                }
+                                await websocketHelper.Send("{ \"info\": \"prompted, please input the pin\"}", cancellationToken);
+                                var pin = int.Parse(await websocketHelper.NextMessageAsync(cancellationToken), CultureInfo.InvariantCulture);
+                                if (await device.SendPinAsync(pin, cancellationToken))
+                                {
+                                    goto askdevice;
                                 }
                                 else
                                 {
                                     await websocketHelper.Send("{ \"error\": \"incorrect-pin\"}", cancellationToken);
                                     continue;
                                 }
-                                break;
-                            case "ask-xpubs":
+                            case "ask-xpub":
                                 if (await RequireDeviceUnlocking())
                                 {
                                     continue;
                                 }
+                                await websocketHelper.Send("{ \"info\": \"ok\"}", cancellationToken);
+                                var askedXpub = JObject.Parse(await websocketHelper.NextMessageAsync(cancellationToken));
+                                var addressType = askedXpub["addressType"].Value<string>();
+                                var accountNumber = askedXpub["accountNumber"].Value<int>();
                                 JObject result = new JObject();
                                 var factory = network.NBXplorerNetwork.DerivationStrategyFactory;
-                                var keyPath = new KeyPath("84'").Derive(network.CoinType).Derive(0, true);
-                                BitcoinExtPubKey xpub = await device.GetXPubAsync(keyPath);
                                 if (fingerprint is null)
                                 {
                                     fingerprint = (await device.GetXPubAsync(new KeyPath("44'"), cancellationToken)).ExtPubKey.ParentFingerprint;
                                 }
                                 result["fingerprint"] = fingerprint.Value.ToString();
-                                var strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+
+                                DerivationStrategyBase strategy = null;
+                                KeyPath keyPath = null;
+                                BitcoinExtPubKey xpub = null;
+
+                                if (!network.NBitcoinNetwork.Consensus.SupportSegwit && addressType != "legacy")
                                 {
-                                    ScriptPubKeyType = ScriptPubKeyType.Segwit
-                                });
-                                AddDerivationSchemeToJson("segwit", result, keyPath, xpub, strategy);
-                                keyPath = new KeyPath("49'").Derive(network.CoinType).Derive(0, true);
-                                xpub = await device.GetXPubAsync(keyPath);
-                                strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+                                    await websocketHelper.Send("{ \"error\": \"segwit-notsupported\"}", cancellationToken);
+                                    continue;
+                                }
+
+                                if (addressType == "segwit")
                                 {
-                                    ScriptPubKeyType = ScriptPubKeyType.SegwitP2SH
-                                });
-                                AddDerivationSchemeToJson("segwitWrapped", result, keyPath, xpub, strategy);
-                                keyPath = new KeyPath("44'").Derive(network.CoinType).Derive(0, true);
-                                xpub = await device.GetXPubAsync(keyPath);
-                                strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+                                    keyPath = new KeyPath("84'").Derive(network.CoinType).Derive(accountNumber, true);
+                                    xpub = await device.GetXPubAsync(keyPath);
+                                    strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+                                    {
+                                        ScriptPubKeyType = ScriptPubKeyType.Segwit
+                                    });
+                                }
+                                else if (addressType == "segwitWrapped")
                                 {
-                                    ScriptPubKeyType = ScriptPubKeyType.Legacy
-                                });
-                                AddDerivationSchemeToJson("legacy", result, keyPath, xpub, strategy);
+                                    keyPath = new KeyPath("49'").Derive(network.CoinType).Derive(accountNumber, true);
+                                    xpub = await device.GetXPubAsync(keyPath);
+                                    strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+                                    {
+                                        ScriptPubKeyType = ScriptPubKeyType.SegwitP2SH
+                                    });
+                                }
+                                else if (addressType == "legacy")
+                                {
+                                    keyPath = new KeyPath("44'").Derive(network.CoinType).Derive(accountNumber, true);
+                                    xpub = await device.GetXPubAsync(keyPath);
+                                    strategy = factory.CreateDirectDerivationStrategy(xpub, new DerivationStrategyOptions()
+                                    {
+                                        ScriptPubKeyType = ScriptPubKeyType.Legacy
+                                    });
+                                }
+                                else
+                                {
+                                    await websocketHelper.Send("{ \"error\": \"invalid-addresstype\"}", cancellationToken);
+                                    continue;
+                                }
+                                result.Add(new JProperty("strategy", strategy.ToString()));
+                                result.Add(new JProperty("accountKey", xpub.ToString()));
+                                result.Add(new JProperty("keyPath", keyPath.ToString()));
                                 await websocketHelper.Send(result.ToString(), cancellationToken);
                                 break;
+                            case "ask-passphrase":
+                                if (command == "ask-passphrase")
+                                {
+                                    if (deviceEntry == null)
+                                    {
+                                        await websocketHelper.Send("{ \"error\": \"need-device\"}", cancellationToken);
+                                        continue;
+                                    }
+                                    // The make the trezor T ask for password
+                                    await device.GetXPubAsync(new KeyPath("44'"), cancellationToken);
+                                }
+                                goto askdevice;
                             case "ask-device":
+askdevice:
                                 password = null;
-                                pin = null;
                                 deviceEntry = null;
                                 device = null;
                                 var entries = (await hwi.EnumerateEntriesAsync(cancellationToken)).ToList();
@@ -227,10 +301,22 @@ namespace BTCPayServer.Controllers
                         }
                     }
                 }
+                catch (FormatException ex)
+                {
+                    JObject obj = new JObject();
+                    obj.Add("error", "invalid-network");
+                    obj.Add("details", ex.ToString());
+                    try
+                    {
+                        await websocketHelper.Send(obj.ToString(), cancellationToken);
+                    }
+                    catch { }
+                }
                 catch (Exception ex)
                 {
                     JObject obj = new JObject();
                     obj.Add("error", "unknown-error");
+                    obj.Add("message", ex.Message);
                     obj.Add("details", ex.ToString());
                     try
                     {
@@ -244,6 +330,39 @@ namespace BTCPayServer.Controllers
                 }
             }
             return new EmptyResult();
+        }
+
+        private ScriptPubKeyType GetScriptPubKeyType(RootedKeyPath keyPath)
+        {
+            var path = keyPath.KeyPath.ToString();
+            if (path.StartsWith("84'", StringComparison.OrdinalIgnoreCase))
+                return ScriptPubKeyType.Segwit;
+            if (path.StartsWith("49'", StringComparison.OrdinalIgnoreCase))
+                return ScriptPubKeyType.SegwitP2SH;
+            if (path.StartsWith("44'", StringComparison.OrdinalIgnoreCase))
+                return ScriptPubKeyType.Legacy;
+            throw new NotSupportedException("Unsupported keypath");
+        }
+
+        private bool SameSelector(DeviceSelector a, DeviceSelector b)
+        {
+            var aargs = new List<string>();
+            a.AddArgs(aargs);
+            var bargs = new List<string>();
+            b.AddArgs(bargs);
+            if (aargs.Count != bargs.Count)
+                return false;
+            for (int i = 0; i < aargs.Count; i++)
+            {
+                if (aargs[i] != bargs[i])
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool IsTrezorT(HwiEnumerateEntry deviceEntry)
+        {
+            return (deviceEntry.Model == HardwareWalletModels.Trezor_T || deviceEntry.Model == HardwareWalletModels.Trezor_T_Simulator);
         }
 
         public StoreData CurrentStore
@@ -261,16 +380,6 @@ namespace BTCPayServer.Controllers
                             .OfType<DerivationSchemeSettings>()
                             .FirstOrDefault(p => p.PaymentId.PaymentType == Payments.PaymentTypes.BTCLike && p.PaymentId.CryptoCode == walletId.CryptoCode);
             return paymentMethod;
-        }
-
-        private void AddDerivationSchemeToJson(string propertyName, JObject result, KeyPath keyPath, BitcoinExtPubKey xpub, DerivationStrategyBase strategy)
-        {
-            result.Add(new JProperty(propertyName, new JObject()
-            {
-                new JProperty("strategy", strategy.ToString()),
-                new JProperty("accountKey", xpub.ToString()),
-                new JProperty("keyPath", keyPath.ToString()),
-            }));
         }
     }
 }

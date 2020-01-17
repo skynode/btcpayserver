@@ -9,7 +9,7 @@
         this.socket = websocket;
         this.onerror = function (error) { };
         this.onbackendmessage = function (json) { };
-
+        this.close = function () { if (websocket) websocket.close(); };
         /**
         * @returns {Promise}
         */
@@ -35,7 +35,7 @@
                         }
                     };
                     request.overrideMimeType("text/plain");
-                    request.open('POST', 'http://localhost:65092/hwi-bridge/v1');
+                    request.open('POST', 'http://127.0.0.1:65092/hwi-bridge/v1');
                     request.send(JSON.stringify(jsonObject));
                 }
                 else {
@@ -87,7 +87,7 @@
                 }
             };
             request.overrideMimeType("text/plain");
-            request.open('GET', 'http://localhost:65092/hwi-bridge/v1/request-permission');
+            request.open('GET', 'http://127.0.0.1:65092/hwi-bridge/v1/request-permission');
             request.send();
         });
     }
